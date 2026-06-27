@@ -1,0 +1,37 @@
+{
+  "pagelen": 1,
+  "values": [
+    {
+      "type": "pipeline",
+      "uuid": "{pipeline-12}",
+      "build_number": 12,
+      "state": {
+        "type": "pipeline_state_completed",
+        "name": "COMPLETED",
+        "result": {
+          "type": "pipeline_state_completed_successful",
+          "name": "SUCCESSFUL"
+        }
+      },
+      "target": {
+        "type": "pipeline_ref_target",
+        "ref_type": "branch",
+        "ref_name": "main",
+        "commit": {
+          "type": "commit",
+          "hash": "0123456789abcdef0123456789abcdef01234567",
+          "message": "Add smoke pipeline",
+          "author": {
+            "raw": "Test User <test@example.com>"
+          }
+        }
+      },
+      "created_on": "2026-05-31T17:16:00.000000+00:00",
+      "completed_on": "2026-05-31T17:16:08.000000+00:00",
+      "duration_in_seconds": 8
+    }
+  ],
+  "page": 1,
+  "size": 2,
+  "next": "https://api.bitbucket.org/2.0/repositories/williseed1/test/pipelines?page=2"
+}

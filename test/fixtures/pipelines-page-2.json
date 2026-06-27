@@ -1,0 +1,36 @@
+{
+  "pagelen": 1,
+  "values": [
+    {
+      "type": "pipeline",
+      "uuid": "{pipeline-11}",
+      "build_number": 11,
+      "state": {
+        "type": "pipeline_state_completed",
+        "name": "COMPLETED",
+        "result": {
+          "type": "pipeline_state_completed_failed",
+          "name": "FAILED"
+        }
+      },
+      "target": {
+        "type": "pipeline_ref_target",
+        "ref_type": "branch",
+        "ref_name": "feature/example",
+        "commit": {
+          "type": "commit",
+          "hash": "fedcba9876543210fedcba9876543210fedcba98",
+          "message": "Exercise failure rendering",
+          "author": {
+            "raw": "Test User <test@example.com>"
+          }
+        }
+      },
+      "created_on": "2026-05-31T16:00:00.000000+00:00",
+      "completed_on": "2026-05-31T16:00:03.000000+00:00",
+      "duration_in_seconds": 3
+    }
+  ],
+  "page": 2,
+  "size": 2
+}

@@ -1,0 +1,103 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+        name: check-added-large-files
+        stages: [commit]
+      - id: check-json
+        name: check-json
+        stages: [push]
+      - id: check-merge-conflict
+        name: check-merge-conflict
+        stages: [push]
+      - id: check-yaml
+        name: check-yaml
+        stages: [push]
+      - id: detect-aws-credentials
+        name: detect-aws-credentials
+        stages: [commit]
+        args: [--allow-missing-credentials]
+      - id: detect-private-key
+        name: detect-private-key
+        stages: [commit]
+      - id: trailing-whitespace
+        name: trailing-whitespace
+        stages: [push]
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        name: detect-secrets
+        stages: [commit]
+        args: [--baseline, .secrets.baseline]
+        additional_dependencies: ['gibberish-detector']
+        exclude: ^bitbucket-pipelines.yml$
+  - repo: https://github.com/Lucas-C/pre-commit-hooks-safety
+    rev: v1.4.2
+    hooks:
+      - id: python-safety-dependencies-check
+        name: python-safety-dependencies-check
+        stages: [push]
+        files: ^.*requirements\.txt$
+  - repo: https://github.com/psf/black
+    rev: 25.1.0
+    hooks:
+      - id: black
+        stages: [push]
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.20.0
+    hooks:
+      - id: pyupgrade
+        stages: [push]
+        args: [--py310-plus]
+  - repo: https://github.com/asottile/reorder_python_imports
+    rev: v3.15.0
+    hooks:
+      - id: reorder-python-imports
+        name: reorder-python-imports
+        stages: [push]
+        args: [--py310-plus]
+  - repo: https://github.com/PyCQA/flake8
+    rev: 7.3.0
+    hooks:
+      - id: flake8
+        stages: [push]
+        args: ['--ignore=E501,W503,E203']
+  - repo: https://github.com/aufdenpunkt/pre-commit-js-beautify
+    rev: 1.13.0
+    hooks:
+      - id: js-beautify
+        stages: [push]
+        language_version: 24.13.0
+        args: [-r]
+        additional_dependencies: ['js-beautify@1.14.7']
+  - repo: https://github.com/google/yamlfmt
+    rev: v0.17.2
+    hooks:
+      - id: yamlfmt
+        stages: [push]
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.28.0
+    hooks:
+      - id: gitleaks
+        name: gitleaks
+        stages: [push]
+        args:
+          - --config=.gitleaks.toml
+          - --verbose
+  - repo: local
+    hooks:
+      - id: trufflehog
+        name: trufflehog
+        stages: [push]
+        description: Detect secrets in your data.
+        entry: bash -c 'trufflehog git file://. --since-commit HEAD --fail --no-update'
+        language: system
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+        name: shellcheck
+        stages: [commit]
+        args: ["--exclude=SC1091"]

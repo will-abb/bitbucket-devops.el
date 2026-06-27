@@ -1,0 +1,84 @@
+{
+  "pagelen": 10,
+  "size": 2,
+  "page": 1,
+  "values": [
+    {
+      "type": "pullrequest",
+      "id": 11,
+      "title": "Development",
+      "state": "MERGED",
+      "draft": false,
+      "created_on": "2026-04-28T14:10:00.000000+00:00",
+      "updated_on": "2026-04-28T15:30:00.000000+00:00",
+      "author": {
+        "display_name": "Will Bosch"
+      },
+      "source": {
+        "branch": {
+          "name": "development"
+        }
+      },
+      "destination": {
+        "branch": {
+          "name": "master"
+        }
+      },
+      "reviewers": [
+        {
+          "display_name": "Ada Reviewer"
+        },
+        {
+          "display_name": "Grace Reviewer"
+        }
+      ],
+      "participants": [
+        {
+          "user": {
+            "display_name": "Ada Reviewer"
+          },
+          "role": "REVIEWER",
+          "approved": true
+        },
+        {
+          "user": {
+            "display_name": "Grace Reviewer"
+          },
+          "role": "REVIEWER",
+          "approved": false
+        },
+        {
+          "user": {
+            "display_name": "Will Bosch"
+          },
+          "role": "AUTHOR",
+          "approved": false
+        }
+      ]
+    },
+    {
+      "type": "pullrequest",
+      "id": 10,
+      "title": "Previous development sync",
+      "state": "OPEN",
+      "draft": true,
+      "created_on": "2026-03-07T09:00:00.000000+00:00",
+      "updated_on": "2026-03-07T09:30:00.000000+00:00",
+      "author": {
+        "display_name": "Will Bosch"
+      },
+      "source": {
+        "branch": {
+          "name": "development"
+        }
+      },
+      "destination": {
+        "branch": {
+          "name": "main"
+        }
+      },
+      "reviewers": [],
+      "participants": []
+    }
+  ]
+}

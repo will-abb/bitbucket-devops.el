@@ -1,0 +1,31 @@
+{
+  "pagelen": 10,
+  "size": 4,
+  "page": 1,
+  "values": [
+    {
+      "key": "lint",
+      "name": "Lint",
+      "state": "SUCCESSFUL",
+      "description": "No lint errors",
+      "url": "https://ci.example.test/lint/11"
+    },
+    {
+      "key": "security",
+      "name": "Security",
+      "state": "SUCCESSFUL"
+    },
+    {
+      "key": "pipeline",
+      "name": "Pipeline",
+      "state": "FAILED",
+      "description": "Unit tests failed",
+      "url": "https://ci.example.test/pipeline/11"
+    },
+    {
+      "key": "deploy",
+      "name": "Deploy",
+      "state": "INPROGRESS"
+    }
+  ]
+}

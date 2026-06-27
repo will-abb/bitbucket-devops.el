@@ -1,0 +1,22 @@
+{
+  "pagelen": 1,
+  "values": [
+    {
+      "type": "pipeline_step",
+      "uuid": "{step-1}",
+      "name": "Build",
+      "state": {
+        "type": "pipeline_state_completed",
+        "name": "COMPLETED",
+        "result": {
+          "type": "pipeline_state_completed_successful",
+          "name": "SUCCESSFUL"
+        }
+      },
+      "duration_in_seconds": 5
+    }
+  ],
+  "page": 1,
+  "size": 2,
+  "next": "https://api.bitbucket.org/2.0/repositories/williseed1/test/pipelines/%7Bpipeline-12%7D/steps?page=2"
+}

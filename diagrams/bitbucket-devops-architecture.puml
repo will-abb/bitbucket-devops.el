@@ -1,0 +1,124 @@
+@startuml
+title bitbucket-devops.el\nBitbucket Cloud DevOps workflows from Emacs
+
+top to bottom direction
+scale max 2200 width
+hide stereotype
+
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam linetype ortho
+skinparam packageStyle rectangle
+skinparam defaultTextAlignment center
+skinparam nodesep 65
+skinparam ranksep 75
+skinparam ArrowColor #42526E
+skinparam ArrowThickness 1.1
+skinparam rectangleBorderColor #42526E
+skinparam rectangleBackgroundColor #FFFFFF
+skinparam packageBorderColor #42526E
+skinparam packageBackgroundColor #FFFFFF
+skinparam noteBackgroundColor #FFF7D6
+skinparam noteBorderColor #FFAB00
+
+skinparam rectangle<<Entry>> {
+  BackgroundColor #E9F2FF
+  BorderColor #0052CC
+}
+skinparam rectangle<<Feature>> {
+  BackgroundColor #E3FCEF
+  BorderColor #00875A
+}
+skinparam rectangle<<Shared>> {
+  BackgroundColor #EAE6FF
+  BorderColor #6554C0
+}
+skinparam rectangle<<Local>> {
+  BackgroundColor #F4F5F7
+  BorderColor #6B778C
+}
+skinparam rectangle<<External>> {
+  BackgroundColor #DEEBFF
+  BorderColor #0747A6
+}
+
+actor "Emacs User" as user
+
+rectangle "bitbucket-devops.el\n==Transient Dispatch\npipelines | pull requests | tracking" <<Entry>> as dispatch
+
+package "Pipeline Feature Area" as pipeline_area {
+  rectangle "Pipeline UI\n==bitbucket-devops-ui.el\nhistory | details | logs\ncommand panel | fullscreen" <<Feature>> as pipeline_ui
+  rectangle "Pipeline Mutations\n==bitbucket-devops-pipelines-mutate.el\nrun configured | PR selector\nrerun | stop | continue" <<Feature>> as pipeline_mutate
+  rectangle "Pipelines YAML Parser\n==bitbucket-devops-pipelines-yaml.el\nselectors | variables | deployments" <<Feature>> as pipeline_yaml
+  rectangle "Pipeline Watcher\n==bitbucket-devops-pipelines-watch.el\nrun | branch | repository trackers\nmode line | notify | backoff" <<Feature>> as watcher
+  rectangle "Magit Push Integration\n==bitbucket-devops-pipelines-magit.el\nopt-in successful-push observer" <<Feature>> as magitpush
+
+  pipeline_mutate -right-> pipeline_yaml : parse
+  pipeline_mutate -down-> watcher : watch run
+  magitpush -left-> watcher : discover pushed commit
+}
+
+package "Pull Request Feature Area" as pr_area {
+  rectangle "Pull Request UI\n==bitbucket-devops-pull-requests-ui.el\nlist | details | diff | commits | activity\ncomments | tasks | reviewers | create | merge" <<Feature>> as pr_ui
+  rectangle "Pull Request Model\n==bitbucket-devops-pull-requests.el\nsummaries | counts | helpers" <<Feature>> as pr_model
+  rectangle "Pull Request REST Adapter\n==bitbucket-devops-pull-requests-rest.el\nPR resources | comments | tasks\nstatuses | reviewers | merge" <<Feature>> as pr_rest
+
+  pr_ui -right-> pr_model : summaries
+  pr_ui -down-> pr_rest : wrappers
+}
+
+package "Shared Infrastructure" as shared {
+  rectangle "Repository Context\n==bitbucket-devops-context.el\nMagit root | SSH remote\nworkspace | repo slug | branch | commit" <<Shared>> as context
+  rectangle "Persistent Cache\n==bitbucket-devops-cache.el\npipelines | pull requests | commits\ndeployments | reviewer users" <<Shared>> as cache
+  rectangle "Async REST Client\n==bitbucket-devops-rest.el\nurl-retrieve | auth | JSON\npagination | redirects | errors" <<Shared>> as rest
+  rectangle "auth-source\n~/.authinfo.gpg\nuser API token or access token" <<Local>> as auth
+
+  context -[hidden]right-> cache
+  cache -[hidden]right-> rest
+  rest -right-> auth : credential
+}
+
+package "Local Tools" as local_tools {
+  rectangle "Local Git Checkout\nSSH remote | branch | HEAD" <<Local>> as checkout
+  rectangle "Emacs and Git Helpers\nmarkdown-mode | browse-url\nMagit range diff | Ediff\ngit fetch | git switch" <<Local>> as emacs_tools
+
+  checkout -[hidden]right-> emacs_tools
+}
+
+package "Bitbucket Cloud" as bitbucket_cloud {
+  rectangle "api.bitbucket.org\n==REST API" <<External>> as api
+  rectangle "Remote Resources\npipelines | logs | deployments\npull requests | statuses\ncomments | tasks | reviewers" <<External>> as resources
+
+  api -right-> resources : resources
+}
+
+user -down-> dispatch : M-x bitbucket-devops-dispatch
+
+dispatch -down-> pipeline_area : pipeline and tracking commands
+dispatch -down-> pr_area : pull request commands
+
+pipeline_area -down-> shared : context | cache | REST
+pr_area -down-> shared : context | cache | REST
+
+checkout -up-> context : Git metadata
+pr_ui ..> emacs_tools : Markdown, URLs,\ndiffs, checkout
+pipeline_ui ..> emacs_tools : logs and buffers
+
+rest -down-> api : HTTPS\nBasic or Bearer
+
+legend bottom
+  Dispatch keys:
+  h history | r run pipeline | l PR list | c create PR | R reviewer cache
+  b branch tracker | o repository tracker | t list trackers | x stop tracker
+  a auto log downloads | m Magit push tracking toggle
+
+  Notes:
+  - Pull request pipeline selectors resolve through the PR REST adapter.
+  - Shared REST owns auth headers, JSON, pagination, redirects, and errors.
+  - Durable cache stores metadata only; logs, raw diffs, comments, tasks,
+    and activity are fetched on demand.
+endlegend
+
+footer One package with shared infrastructure and two feature areas | Automatic Magit pipeline discovery is opt-in
+
+@enduml

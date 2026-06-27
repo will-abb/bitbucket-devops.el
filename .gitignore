@@ -1,0 +1,8 @@
+*.elc
+*~
+\#*\#
+.\#*
+.DS_Store
+/.eldev/
+/.cask/
+*.html

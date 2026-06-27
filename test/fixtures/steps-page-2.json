@@ -1,0 +1,21 @@
+{
+  "pagelen": 1,
+  "values": [
+    {
+      "type": "pipeline_step",
+      "uuid": "{step-2}",
+      "name": "Test",
+      "state": {
+        "type": "pipeline_state_completed",
+        "name": "COMPLETED",
+        "result": {
+          "type": "pipeline_state_completed_successful",
+          "name": "SUCCESSFUL"
+        }
+      },
+      "duration_in_seconds": 3
+    }
+  ],
+  "page": 2,
+  "size": 2
+}

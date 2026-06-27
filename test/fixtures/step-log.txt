@@ -1,0 +1,2 @@
+Starting smoke test
+[32mPASS[0m default pipeline

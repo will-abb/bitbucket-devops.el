@@ -1,0 +1,23 @@
+{
+  "pagelen": 10,
+  "size": 2,
+  "page": 1,
+  "values": [
+    {
+      "hash": "83bd24f1234567890",
+      "message": "Merged in development",
+      "date": "2026-04-28T15:30:00+00:00",
+      "author": {
+        "raw": "Will Bosch <will@example.com>"
+      }
+    },
+    {
+      "hash": "93ac6be1234567890",
+      "message": "point to new location",
+      "date": "2026-04-28T14:45:00+00:00",
+      "author": {
+        "raw": "Will Bosch <will@example.com>"
+      }
+    }
+  ]
+}

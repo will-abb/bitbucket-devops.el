@@ -1,0 +1,45 @@
+{
+  "pagelen": 10,
+  "size": 4,
+  "page": 1,
+  "values": [
+    {
+      "status": "added",
+      "lines_added": 7,
+      "lines_removed": 0,
+      "new": {
+        "path": ".gitignore"
+      }
+    },
+    {
+      "status": "modified",
+      "lines_added": 63,
+      "lines_removed": 14,
+      "old": {
+        "path": "config.org"
+      },
+      "new": {
+        "path": "config.org"
+      }
+    },
+    {
+      "status": "removed",
+      "lines_added": 0,
+      "lines_removed": 3,
+      "old": {
+        "path": "old-config.org"
+      }
+    },
+    {
+      "status": "renamed",
+      "lines_added": 2,
+      "lines_removed": 2,
+      "old": {
+        "path": "old-name.org"
+      },
+      "new": {
+        "path": "new-name.org"
+      }
+    }
+  ]
+}

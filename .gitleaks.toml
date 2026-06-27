@@ -1,0 +1,10 @@
+title = "bitbucket-devops.el gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Ignore detect-secrets baseline metadata file"
+paths = [
+  '(^|/)\.secrets\.baseline$',
+]
