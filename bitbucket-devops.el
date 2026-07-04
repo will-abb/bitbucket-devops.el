@@ -23,6 +23,7 @@
 (require 'bitbucket-devops-pipelines-watch)
 (require 'bitbucket-devops-pipelines-magit)
 (require 'bitbucket-devops-pipelines-mutate)
+(require 'bitbucket-devops-pull-requests-watch)
 (require 'bitbucket-devops-pull-requests-ui)
 
 (defun bitbucket-devops-pipelines-toggle-auto-download-logs ()

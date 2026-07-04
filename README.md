@@ -207,9 +207,9 @@ The top-level dispatch intentionally contains only actions that make sense from
 an ordinary buffer inside a repository. Actions that require a selected
 pipeline or step appear in the corresponding history or details screen.
 
-In a pull request list or detail buffer, press `b` to fetch the selected pull
-request's source branch from the configured Git remote and switch to it. If the
-local branch already exists, the command preserves it and only updates the
+In a pull request list or detail buffer, press `C-c b` to fetch the selected
+pull request's source branch from the configured Git remote and switch to it. If
+the local branch already exists, the command preserves it and only updates the
 remote-tracking ref before switching. Otherwise, it creates a local tracking
 branch. Git refuses the switch when local changes would be overwritten.
 
@@ -243,6 +243,7 @@ completed remain available while a later manual or deployment step is paused.
 | `RET` | Open pipeline details |
 | `t` | Track the selected pipeline directly |
 | `d` | Download all available completed logs for the selected pipeline |
+| `R` | Run a configured pipeline for the current repository |
 | `TAB` | Expand the column at point to fit loaded values |
 | `?` | Toggle the keybinding command panel for the current buffer |
 | `q` | Quit the Bitbucket Pipelines UI and close its command panel |
@@ -279,6 +280,9 @@ In a pull request list buffer:
 | `f` | Filter loaded pull requests by source or destination branch |
 | `a` | Filter loaded pull requests by author |
 | `RET` | Open pull request details |
+| `P` / `C-c P` | Run a configured pipeline for the current repository |
+| `C-c b` | Check out the selected pull request's source branch |
+| `C-c w` / `C-c C-w` | Watch comments on the selected pull request, or stop watching it |
 | `c` | Create a pull request or draft |
 | `-` | Return to the prior package screen |
 | `?` | Toggle the keybinding command panel for the current buffer |
@@ -290,13 +294,15 @@ In a pull request detail buffer:
 | --- | --- |
 | `RET` | Run the action for the current line, including editing descriptions and comments, toggling readiness, checking out the source branch, and adding reviewers |
 | `S-RET` | Copy the browser link at point, including pull request and build-status links |
-| `C-c g` | Reload pull request details, comments, commits, checks, tasks, and changed files |
+| `r` / `C-c g` | Reload pull request details, comments, commits, checks, tasks, and changed files |
 | `d` | Open the pull request diff using `bitbucket-devops-pull-requests-diff-viewer` |
 | `C-c d` | Choose Bitbucket patch, Magit range diff, or per-file Ediff for this view |
 | `m` | Open the complete loaded commit list |
 | `A` | Open the complete loaded activity list |
-| `r` | Mark a draft pull request ready for review |
-| `R` | Mark a ready pull request back to draft |
+| `P` / `C-c P` | Run a configured pipeline for the current repository |
+| `C-c b` | Check out this pull request's source branch |
+| `C-c w` / `C-c C-w` | Watch comments on this pull request, or stop watching it |
+| `R` | Toggle the pull request between ready and draft |
 | `a` | Approve the pull request |
 | `u` | Remove your approval |
 | `x` | Request changes |
@@ -377,9 +383,9 @@ Press `C-c C-c` or `C-x C-s` in that buffer to post the complete multiline
 Markdown description, or `C-c C-k` to cancel. Pressing `RET` on the Description
 heading or body opens the same editor while preserving the current title.
 
-`r` marks the pull request ready for review, `R` marks it as a draft, and
-`C-c p d` remains available as a toggle. All three preserve the current title
-and description. The detail buffer shows a separate `Readiness` field. `RET`
+`I`, `R`, and `C-c p d` toggle the pull request between draft and ready while
+preserving the current title and description. The detail buffer shows a
+separate `Readiness` field. `RET`
 runs contextual actions from anywhere on supported lines: the PR number opens
 the browser URL, the PR title edits the title, `Readiness` toggles draft state,
 `Branches` checks out the source branch, `Reviewers` adds a reviewer, and a
@@ -396,8 +402,7 @@ display conversion when set to `nil`.
 The raw diff buffer records the pull request detail buffer as its back target.
 Press `-` from the diff to return to the pull request details. Press `r` or
 `C-c g` to reload the diff from Bitbucket without opening another buffer. The
-commits and activity subviews support the same refresh keys. The detail buffer
-keeps `r` for marking a draft ready, so use `C-c g` to refresh details. Every
+commits, activity, and detail buffers support the same refresh keys. Every
 refreshable pull request buffer displays its available refresh binding in its
 command panel.
 
@@ -569,6 +574,13 @@ notifications through another mechanism, set
 `bitbucket-devops-pipelines-notification-function` to a function that accepts one
 message string.
 
+Pull request comment watchers use the same notification fallback behavior. Use
+`C-c w` or `C-c C-w` from a pull request list or detail buffer to watch the
+selected pull request's comments; pressing the command again stops that watcher.
+The first poll records the already-loaded discussion as a quiet baseline, and
+later unseen comments and replies notify with the author's display name and a
+one-line preview of the comment text.
+
 Enable automatic tracking after successful Magit branch pushes:
 
 ```elisp
@@ -664,6 +676,10 @@ options are:
 | `bitbucket-devops-pipelines-watch-mode-line-enabled` | Show or hide the active tracker count in the mode line |
 | `bitbucket-devops-pipelines-notification-function` | Custom one-argument notification function |
 | `bitbucket-devops-pipelines-notification-title` | Title used for built-in desktop or `alert.el` notifications |
+| `bitbucket-devops-pull-requests-comments-poll-interval` | Poll interval for selected pull request comment watchers |
+| `bitbucket-devops-pull-requests-comments-notification-function` | Custom one-argument notification function for PR comment watchers |
+| `bitbucket-devops-pull-requests-comments-notification-title` | Title used for PR comment desktop or `alert.el` notifications |
+| `bitbucket-devops-pull-requests-comments-watch-mode-line-enabled` | Show or hide the active PR comment watcher count in the mode line |
 | `bitbucket-devops-pipelines-after-magit-push-hook` | Hook run after a successful watched Magit push |
 | `bitbucket-devops-pipelines-remember-variable-values` | Remember runtime variable values as future prompt defaults |
 | `bitbucket-devops-pipelines-production-branches` | Branch names that require production confirmation |

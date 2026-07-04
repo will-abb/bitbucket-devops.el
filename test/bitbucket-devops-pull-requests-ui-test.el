@@ -240,6 +240,39 @@
       (should (string-match-p "#[[:space:]]+State[[:space:]]+Title"
                               (thing-at-point 'line t))))))
 
+(ert-deftest bitbucket-devops-pull-requests-ui-render-preserves-visible-scroll ()
+  (let ((buffer
+         (generate-new-buffer
+          " *bitbucket-devops-pull-requests-scroll-test*")))
+    (unwind-protect
+        (save-window-excursion
+          (switch-to-buffer buffer)
+          (bitbucket-devops-pull-requests-list-mode)
+          (setq-local bitbucket-devops-pull-requests-ui--context
+                      '(:workspace "williseed1" :repo-slug "test"))
+          (setq-local
+           bitbucket-devops-pull-requests-ui--pull-requests
+           (cl-loop
+            for id from 1 to 40
+            collect
+            `((id . ,id)
+              (title . ,(format "Pull request %02d" id))
+              (state . "OPEN")
+              (source . ((branch . ((name . "feature")))))
+              (destination . ((branch . ((name . "main")))))
+              (author . ((display_name . "Will Bosch")))
+              (created_on . "2026-04-28T14:10:00.000000+00:00")
+              (updated_on . "2026-04-28T15:10:00.000000+00:00")))))
+          (bitbucket-devops-pull-requests-ui--render)
+          (goto-char (point-min))
+          (forward-line 12)
+          (set-window-point (selected-window) (point))
+          (set-window-start (selected-window) (point))
+          (let ((start-line (line-number-at-pos (window-start))))
+            (bitbucket-devops-pull-requests-ui--render)
+            (should (= (line-number-at-pos (window-start)) start-line)))
+      (kill-buffer buffer))))
+
 (ert-deftest bitbucket-devops-pull-requests-ui-comments-use-thread-formatting ()
   (let* ((pull-request
           (copy-tree
@@ -2211,13 +2244,17 @@ index e69de29..0000000\n"))
                      ("S-<return>" . bitbucket-devops-pull-requests-ui-copy-browser-url-at-point)
                      ("a" . bitbucket-devops-pull-requests-ui-approve)
                      ("u" . bitbucket-devops-pull-requests-ui-remove-approval)
-                     ("r" . bitbucket-devops-pull-requests-ui-mark-ready)
-                     ("R" . bitbucket-devops-pull-requests-ui-mark-draft)
+                     ("r" . bitbucket-devops-pull-requests-ui-refresh-current)
+                     ("R" . bitbucket-devops-pull-requests-ui-toggle-draft)
                      ("C-c g" . bitbucket-devops-pull-requests-ui-refresh-current)
                      ("C-c d" . bitbucket-devops-pull-requests-ui-choose-diff-viewer)
                      ("m" . bitbucket-devops-pull-requests-ui-open-commits)
                      ("A" . bitbucket-devops-pull-requests-ui-open-activity)
-                     ("b" . bitbucket-devops-pull-requests-ui-checkout-source-branch)
+                     ("P" . bitbucket-devops-pull-requests-ui-run-pipeline)
+                     ("C-c P" . bitbucket-devops-pull-requests-ui-run-pipeline)
+                     ("C-c b" . bitbucket-devops-pull-requests-ui-checkout-source-branch)
+                     ("C-c w" . bitbucket-devops-pull-requests-ui-toggle-comment-watch)
+                     ("C-c C-w" . bitbucket-devops-pull-requests-ui-toggle-comment-watch)
                      ("o" . bitbucket-devops-pull-requests-ui-browse)
                      ("x" . bitbucket-devops-pull-requests-ui-request-changes)
                      ("X" . bitbucket-devops-pull-requests-ui-remove-request-changes)
@@ -2240,6 +2277,9 @@ index e69de29..0000000\n"))
          (cdr binding))))
   (should-not
    (lookup-key bitbucket-devops-pull-requests-detail-mode-map (kbd "K")))
+  (dolist (key '("b" "B" "I"))
+    (should-not
+     (lookup-key bitbucket-devops-pull-requests-detail-mode-map (kbd key))))
   (should
    (eq (lookup-key bitbucket-devops-pull-requests-detail-mode-map (kbd "C-c t"))
        bitbucket-devops-pull-requests-task-prefix-map))
@@ -2262,7 +2302,7 @@ index e69de29..0000000\n"))
                      (kbd (car binding)))
          (cdr binding)))))
 
-(ert-deftest bitbucket-devops-pull-requests-ui-refresh-aliases-avoid-detail-conflict ()
+(ert-deftest bitbucket-devops-pull-requests-ui-refresh-aliases-include-detail-buffer ()
   (should
    (eq (lookup-key bitbucket-devops-pull-requests-list-mode-map (kbd "r"))
        #'bitbucket-devops-pull-requests-ui-refresh-current))
@@ -2276,10 +2316,19 @@ index e69de29..0000000\n"))
          #'bitbucket-devops-pull-requests-ui-refresh-current)))
   (should
    (eq (lookup-key bitbucket-devops-pull-requests-detail-mode-map (kbd "r"))
-       #'bitbucket-devops-pull-requests-ui-mark-ready))
+       #'bitbucket-devops-pull-requests-ui-refresh-current))
   (should
    (eq (lookup-key bitbucket-devops-pull-requests-detail-mode-map (kbd "C-c g"))
        #'bitbucket-devops-pull-requests-ui-refresh-current))
+  (should
+   (eq (lookup-key bitbucket-devops-pull-requests-detail-mode-map (kbd "R"))
+       #'bitbucket-devops-pull-requests-ui-toggle-draft))
+  (dolist (key '("b" "B" "I"))
+    (should-not
+     (lookup-key bitbucket-devops-pull-requests-detail-mode-map (kbd key))))
+  (dolist (key '("b" "B"))
+    (should-not
+     (lookup-key bitbucket-devops-pull-requests-list-mode-map (kbd key))))
   (dolist (mode '(bitbucket-devops-pull-requests-list-mode
                   bitbucket-devops-pull-requests-diff-mode
                   bitbucket-devops-pull-requests-commits-mode
@@ -2297,7 +2346,11 @@ index e69de29..0000000\n"))
     (bitbucket-devops-pull-requests-detail-mode)
     (should
      (string-match-p
-      "C-c g[[:space:]]+Refresh"
+      "r[[:space:]]+Refresh"
+      (bitbucket-devops-ui--command-panel-lines (current-buffer))))
+    (should
+     (string-match-p
+      "R[[:space:]]+Toggle ready/draft"
       (bitbucket-devops-ui--command-panel-lines (current-buffer))))))
 
 (ert-deftest bitbucket-devops-pull-requests-ui-commit-map-opens-commit-at-point ()
@@ -2315,14 +2368,26 @@ index e69de29..0000000\n"))
       "RET[[:space:]]+Open commit"
       (bitbucket-devops-ui--command-panel-lines (current-buffer))))))
 
-(ert-deftest bitbucket-devops-pull-requests-ui-command-panels-show-checkout-branch ()
+(ert-deftest bitbucket-devops-pull-requests-ui-command-panels-show-pr-tools ()
   (dolist (mode '(bitbucket-devops-pull-requests-list-mode
                   bitbucket-devops-pull-requests-detail-mode))
     (with-temp-buffer
       (funcall mode)
       (should
        (string-match-p
-        "b[[:space:]]+Checkout branch"
+        "P/C-c P[[:space:]]+Run pipeline"
+        (bitbucket-devops-ui--command-panel-lines (current-buffer))))
+      (should
+       (string-match-p
+        "C-c b[[:space:]]+Checkout branch"
+        (bitbucket-devops-ui--command-panel-lines (current-buffer))))
+      (should
+       (string-match-p
+        "C-c w/C-c C-w[[:space:]]+Watch comments"
+        (bitbucket-devops-ui--command-panel-lines (current-buffer))))
+      (should-not
+       (string-match-p
+        "\\(?:^\\|\n\\)b[[:space:]]+Checkout branch"
         (bitbucket-devops-ui--command-panel-lines (current-buffer)))))))
 
 (ert-deftest bitbucket-devops-pull-requests-ui-command-panels-show-browser-actions ()
@@ -2369,7 +2434,7 @@ index e69de29..0000000\n"))
     (cl-letf (((symbol-function 'evil-define-key*)
                (lambda (&rest arguments) (push arguments observed))))
       (bitbucket-devops-pull-requests-ui--install-evil-bindings)
-      (should (= (length observed) 6))
+      (should (= (length observed) 11))
       (should
        (member
         (append
@@ -2386,7 +2451,11 @@ index e69de29..0000000\n"))
           (kbd "s") #'bitbucket-devops-pull-requests-ui-set-state-filter
           (kbd "f") #'bitbucket-devops-pull-requests-ui-set-branch-filter
           (kbd "a") #'bitbucket-devops-pull-requests-ui-set-author-filter
-          (kbd "b") #'bitbucket-devops-pull-requests-ui-checkout-source-branch
+          (kbd "P") #'bitbucket-devops-pull-requests-ui-run-pipeline
+          (kbd "C-c P") #'bitbucket-devops-pull-requests-ui-run-pipeline
+          (kbd "C-c b") #'bitbucket-devops-pull-requests-ui-checkout-source-branch
+          (kbd "C-c w") #'bitbucket-devops-pull-requests-ui-toggle-comment-watch
+          (kbd "C-c C-w") #'bitbucket-devops-pull-requests-ui-toggle-comment-watch
           (kbd "o") #'bitbucket-devops-pull-requests-ui-browse
           (kbd "c") #'bitbucket-devops-pull-requests-ui-create
           (kbd "-") #'bitbucket-devops-ui-back
@@ -2420,11 +2489,19 @@ index e69de29..0000000\n"))
               (cons (kbd "C-c d")
                     #'bitbucket-devops-pull-requests-ui-choose-diff-viewer)
               (cons (kbd "r")
-                    #'bitbucket-devops-pull-requests-ui-mark-ready)
+                    #'bitbucket-devops-pull-requests-ui-refresh-current)
               (cons (kbd "R")
-                    #'bitbucket-devops-pull-requests-ui-mark-draft)
-              (cons (kbd "b")
+                    #'bitbucket-devops-pull-requests-ui-toggle-draft)
+              (cons (kbd "P")
+                    #'bitbucket-devops-pull-requests-ui-run-pipeline)
+              (cons (kbd "C-c P")
+                    #'bitbucket-devops-pull-requests-ui-run-pipeline)
+              (cons (kbd "C-c b")
                     #'bitbucket-devops-pull-requests-ui-checkout-source-branch)
+              (cons (kbd "C-c w")
+                    #'bitbucket-devops-pull-requests-ui-toggle-comment-watch)
+              (cons (kbd "C-c C-w")
+                    #'bitbucket-devops-pull-requests-ui-toggle-comment-watch)
               (cons (kbd "o")
                     #'bitbucket-devops-pull-requests-ui-browse)
               (cons (kbd "C-c =")
@@ -2454,6 +2531,20 @@ index e69de29..0000000\n"))
          bitbucket-devops-pull-requests-detail-mode-map
          (kbd "K") nil)
         observed))
+      (dolist (binding (list (cons bitbucket-devops-pull-requests-list-mode-map
+                                   (kbd "b"))
+                             (cons bitbucket-devops-pull-requests-list-mode-map
+                                   (kbd "B"))
+                             (cons bitbucket-devops-pull-requests-detail-mode-map
+                                   (kbd "b"))
+                             (cons bitbucket-devops-pull-requests-detail-mode-map
+                                   (kbd "B"))
+                             (cons bitbucket-devops-pull-requests-detail-mode-map
+                                   (kbd "I"))))
+        (should
+         (member
+          (list 'normal (car binding) (cdr binding) nil)
+          observed)))
       (should
        (member
         (append

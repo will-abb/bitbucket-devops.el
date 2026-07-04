@@ -26,6 +26,18 @@
 (require 'bitbucket-devops-pull-requests)
 (require 'bitbucket-devops-pull-requests-rest)
 
+(declare-function bitbucket-devops-pipelines-run-configured
+                  "bitbucket-devops-pipelines-mutate"
+                  (&optional directory))
+(declare-function bitbucket-devops-pull-requests-watch-comments
+                  "bitbucket-devops-pull-requests-watch"
+                  (context pull-request))
+(declare-function bitbucket-devops-pull-requests-watch-comments-active-p
+                  "bitbucket-devops-pull-requests-watch"
+                  (context pull-request-id))
+(declare-function bitbucket-devops-pull-requests-watch-comments-stop
+                  "bitbucket-devops-pull-requests-watch"
+                  (context pull-request-id))
 (declare-function evil-define-key* "evil-core"
                   (state keymap key def &rest bindings))
 (declare-function magit-list-local-branch-names "magit-git" ())
@@ -450,7 +462,11 @@
     ("s" . bitbucket-devops-pull-requests-ui-set-state-filter)
     ("f" . bitbucket-devops-pull-requests-ui-set-branch-filter)
     ("a" . bitbucket-devops-pull-requests-ui-set-author-filter)
-    ("b" . bitbucket-devops-pull-requests-ui-checkout-source-branch)
+    ("P" . bitbucket-devops-pull-requests-ui-run-pipeline)
+    ("C-c P" . bitbucket-devops-pull-requests-ui-run-pipeline)
+    ("C-c b" . bitbucket-devops-pull-requests-ui-checkout-source-branch)
+    ("C-c w" . bitbucket-devops-pull-requests-ui-toggle-comment-watch)
+    ("C-c C-w" . bitbucket-devops-pull-requests-ui-toggle-comment-watch)
     ("o" . bitbucket-devops-pull-requests-ui-browse)
     ("c" . bitbucket-devops-pull-requests-ui-create)
     ("-" . bitbucket-devops-ui-back)
@@ -482,7 +498,8 @@ action for one invocation."
   :group 'bitbucket-devops-pull-requests)
 
 (defcustom bitbucket-devops-pull-requests-detail-keybindings
-  '(("C-c g" . bitbucket-devops-pull-requests-ui-refresh-current)
+  '(("r" . bitbucket-devops-pull-requests-ui-refresh-current)
+    ("C-c g" . bitbucket-devops-pull-requests-ui-refresh-current)
     ("RET" . bitbucket-devops-pull-requests-ui-open-detail-at-point)
     ("S-RET" . bitbucket-devops-pull-requests-ui-copy-browser-url-at-point)
     ("S-<return>" . bitbucket-devops-pull-requests-ui-copy-browser-url-at-point)
@@ -491,10 +508,13 @@ action for one invocation."
     ("C-c d" . bitbucket-devops-pull-requests-ui-choose-diff-viewer)
     ("m" . bitbucket-devops-pull-requests-ui-open-commits)
     ("A" . bitbucket-devops-pull-requests-ui-open-activity)
-    ("b" . bitbucket-devops-pull-requests-ui-checkout-source-branch)
+    ("P" . bitbucket-devops-pull-requests-ui-run-pipeline)
+    ("C-c P" . bitbucket-devops-pull-requests-ui-run-pipeline)
+    ("C-c b" . bitbucket-devops-pull-requests-ui-checkout-source-branch)
+    ("C-c w" . bitbucket-devops-pull-requests-ui-toggle-comment-watch)
+    ("C-c C-w" . bitbucket-devops-pull-requests-ui-toggle-comment-watch)
     ("o" . bitbucket-devops-pull-requests-ui-browse)
-    ("r" . bitbucket-devops-pull-requests-ui-mark-ready)
-    ("R" . bitbucket-devops-pull-requests-ui-mark-draft)
+    ("R" . bitbucket-devops-pull-requests-ui-toggle-draft)
     ("a" . bitbucket-devops-pull-requests-ui-approve)
     ("u" . bitbucket-devops-pull-requests-ui-remove-approval)
     ("x" . bitbucket-devops-pull-requests-ui-request-changes)
@@ -636,6 +656,38 @@ considered active.  Terminal states such as `MERGED', `DECLINED', and
 (defun bitbucket-devops-pull-requests-ui--key-for-command (bindings command)
   "Return the key in BINDINGS assigned to COMMAND."
   (car (rassq command bindings)))
+
+(defun bitbucket-devops-pull-requests-ui--keys-for-command (bindings command)
+  "Return all keys in BINDINGS assigned to COMMAND."
+  (delq
+   nil
+   (mapcar
+    (lambda (binding)
+      (when (eq (cdr binding) command)
+        (car binding)))
+    bindings)))
+
+(defun bitbucket-devops-pull-requests-ui-keys-for-command (command)
+  "Return configured keys for COMMAND in the current PR buffer."
+  (cond
+   ((derived-mode-p 'bitbucket-devops-pull-requests-list-mode)
+    (bitbucket-devops-pull-requests-ui--keys-for-command
+     bitbucket-devops-pull-requests-list-keybindings command))
+   ((derived-mode-p 'bitbucket-devops-pull-requests-detail-mode)
+    (bitbucket-devops-pull-requests-ui--keys-for-command
+     bitbucket-devops-pull-requests-detail-keybindings command))
+   ((derived-mode-p 'bitbucket-devops-pull-requests-diff-mode)
+    (bitbucket-devops-pull-requests-ui--keys-for-command
+     bitbucket-devops-pull-requests-diff-keybindings command))
+   ((derived-mode-p 'bitbucket-devops-pull-requests-commits-mode)
+    (append
+     (bitbucket-devops-pull-requests-ui--keys-for-command
+      bitbucket-devops-pull-requests-commits-keybindings command)
+     (bitbucket-devops-pull-requests-ui--keys-for-command
+      bitbucket-devops-pull-requests-subview-keybindings command)))
+   ((derived-mode-p 'bitbucket-devops-pull-requests-activity-mode)
+    (bitbucket-devops-pull-requests-ui--keys-for-command
+     bitbucket-devops-pull-requests-subview-keybindings command))))
 
 (defun bitbucket-devops-pull-requests-ui-key-for-command (command)
   "Return the configured key for COMMAND in the current PR buffer."
@@ -1955,17 +2007,20 @@ When FACE is non-nil, apply it to every value."
 
 (defun bitbucket-devops-pull-requests-ui--render ()
   "Render loaded pull requests in the current list buffer."
-  (setq tabulated-list-entries
-        (mapcar #'bitbucket-devops-pull-requests-ui--row
-                (bitbucket-devops-pull-requests-ui--filtered-pull-requests)))
-  (tabulated-list-print t)
-  (let ((inhibit-read-only t))
-    (goto-char (point-min))
-    (insert
-     (apply #'concat (bitbucket-devops-pull-requests-ui--list-header-line))
-     "\n"))
-  (bitbucket-devops-pull-requests-ui--apply-list-line-wrapping)
-  (force-mode-line-update))
+  (bitbucket-devops-ui--preserve-visible-window-positions
+   (lambda ()
+     (setq tabulated-list-entries
+           (mapcar #'bitbucket-devops-pull-requests-ui--row
+                   (bitbucket-devops-pull-requests-ui--filtered-pull-requests)))
+     (tabulated-list-print t)
+     (save-excursion
+       (let ((inhibit-read-only t))
+         (goto-char (point-min))
+         (insert
+          (apply #'concat (bitbucket-devops-pull-requests-ui--list-header-line))
+          "\n")))
+     (bitbucket-devops-pull-requests-ui--apply-list-line-wrapping)
+     (force-mode-line-update))))
 
 (defun bitbucket-devops-pull-requests-ui--filtered-pull-requests ()
   "Return loaded pull requests matching active list filters."
@@ -2924,6 +2979,40 @@ thread is resolved.  Individual comment responses include that field."
    (t
     (user-error "This command requires a pull request list or detail buffer"))))
 
+(defun bitbucket-devops-pull-requests-ui-run-pipeline ()
+  "Run a configured pipeline from the current pull request buffer's repository."
+  (interactive)
+  (unless bitbucket-devops-pull-requests-ui--context
+    (user-error "This buffer is not associated with a Bitbucket repository"))
+  (require 'bitbucket-devops-pipelines-mutate)
+  (bitbucket-devops-pipelines-run-configured
+   (or (plist-get bitbucket-devops-pull-requests-ui--context :root)
+       default-directory)))
+
+(defun bitbucket-devops-pull-requests-ui-toggle-comment-watch ()
+  "Toggle comment notifications for the selected pull request."
+  (interactive)
+  (unless bitbucket-devops-pull-requests-ui--context
+    (user-error "This buffer is not associated with a Bitbucket repository"))
+  (require 'bitbucket-devops-pull-requests-watch)
+  (let* ((context bitbucket-devops-pull-requests-ui--context)
+         (pull-request (bitbucket-devops-pull-requests-ui--current-pull-request))
+         (pull-request-id (alist-get 'id pull-request)))
+    (unless pull-request-id
+      (user-error "Unable to watch comments without a pull request id"))
+    (if (bitbucket-devops-pull-requests-watch-comments-active-p
+         context
+         pull-request-id)
+        (progn
+          (bitbucket-devops-pull-requests-watch-comments-stop
+           context
+           pull-request-id)
+          (message "Stopped watching Bitbucket pull request #%s comments"
+                   pull-request-id))
+      (bitbucket-devops-pull-requests-watch-comments context pull-request)
+      (message "Watching Bitbucket pull request #%s comments"
+               pull-request-id))))
+
 (defun bitbucket-devops-pull-requests-ui--pull-request-at-point ()
   "Return the pull request on the current list row, or nil."
   (when (derived-mode-p 'bitbucket-devops-pull-requests-list-mode)
@@ -3474,6 +3563,13 @@ without resetting it, or create a tracking branch when it does not exist."
   (setf (alist-get name bitbucket-devops-pull-requests-ui--applied-keybindings)
         (mapcar #'car bindings)))
 
+(defun bitbucket-devops-pull-requests-ui--clear-unconfigured-map-bindings
+    (map bindings keys)
+  "Clear stale KEYS from MAP when absent from configured BINDINGS."
+  (dolist (key keys)
+    (unless (assoc key bindings)
+      (define-key map (kbd key) nil))))
+
 (defun bitbucket-devops-pull-requests-ui--evil-bindings (bindings)
   "Return flattened Evil arguments for BINDINGS."
   (apply
@@ -3506,17 +3602,30 @@ without resetting it, or create a tracking branch when it does not exist."
   (setf (alist-get name bitbucket-devops-pull-requests-ui--applied-evil-keybindings)
         (mapcar #'car bindings)))
 
+(defun bitbucket-devops-pull-requests-ui--clear-unconfigured-evil-bindings
+    (map bindings keys)
+  "Clear stale Evil normal-state KEYS from MAP when absent from BINDINGS."
+  (dolist (key keys)
+    (unless (assoc key bindings)
+      (evil-define-key* 'normal map (kbd key) nil))))
+
 (defun bitbucket-devops-pull-requests-ui-apply-keybindings ()
   "Apply configured pull request bindings to non-Evil and Evil maps."
   (interactive)
   (bitbucket-devops-pull-requests-ui--apply-map-bindings
    'list bitbucket-devops-pull-requests-list-mode-map
    bitbucket-devops-pull-requests-list-keybindings)
+  (bitbucket-devops-pull-requests-ui--clear-unconfigured-map-bindings
+   bitbucket-devops-pull-requests-list-mode-map
+   bitbucket-devops-pull-requests-list-keybindings
+   '("b" "B"))
   (bitbucket-devops-pull-requests-ui--apply-map-bindings
    'detail bitbucket-devops-pull-requests-detail-mode-map
    (bitbucket-devops-pull-requests-ui--detail-bindings))
-  (unless (assoc "K" bitbucket-devops-pull-requests-detail-keybindings)
-    (define-key bitbucket-devops-pull-requests-detail-mode-map (kbd "K") nil))
+  (bitbucket-devops-pull-requests-ui--clear-unconfigured-map-bindings
+   bitbucket-devops-pull-requests-detail-mode-map
+   bitbucket-devops-pull-requests-detail-keybindings
+   '("b" "B" "I" "K"))
   (bitbucket-devops-pull-requests-ui--apply-map-bindings
    'diff bitbucket-devops-pull-requests-diff-mode-map
    bitbucket-devops-pull-requests-diff-keybindings)
@@ -5512,12 +5621,17 @@ When CLOSE-SOURCE-BRANCH is non-nil, delete the source branch after merging."
   (bitbucket-devops-pull-requests-ui--install-evil-map-bindings
    'list bitbucket-devops-pull-requests-list-mode-map
    bitbucket-devops-pull-requests-list-keybindings)
+  (bitbucket-devops-pull-requests-ui--clear-unconfigured-evil-bindings
+   bitbucket-devops-pull-requests-list-mode-map
+   bitbucket-devops-pull-requests-list-keybindings
+   '("b" "B"))
   (bitbucket-devops-pull-requests-ui--install-evil-map-bindings
    'detail bitbucket-devops-pull-requests-detail-mode-map
    (bitbucket-devops-pull-requests-ui--detail-bindings))
-  (unless (assoc "K" bitbucket-devops-pull-requests-detail-keybindings)
-    (evil-define-key* 'normal bitbucket-devops-pull-requests-detail-mode-map
-                      (kbd "K") nil))
+  (bitbucket-devops-pull-requests-ui--clear-unconfigured-evil-bindings
+   bitbucket-devops-pull-requests-detail-mode-map
+   bitbucket-devops-pull-requests-detail-keybindings
+   '("b" "B" "I" "K"))
   (bitbucket-devops-pull-requests-ui--install-evil-map-bindings
    'diff bitbucket-devops-pull-requests-diff-mode-map
    bitbucket-devops-pull-requests-diff-keybindings)

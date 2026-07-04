@@ -796,6 +796,7 @@ s    Filter loaded history by status
 RET  Open pipeline details
 t    Track selected pipeline
 d    Download selected pipeline logs
+R    Run configured pipeline
 TAB  Expand current column to fit loaded values
 ?    Toggle command panel
 -    Back
@@ -832,15 +833,14 @@ q         Quit package UI
 Pull Request Details:
 RET       Run contextual action at point
 S-RET     Copy browser URL at point
-C-c g     Refresh details
+r / C-c g Refresh details
 d         Open diff
 C-c d     Choose one-time diff viewer
 m         Open complete loaded commit list
 A         Open complete loaded activity list
 b         Checkout source branch
 o         Open browser URL
-r         Mark draft ready for review
-R         Mark ready pull request back to draft
+I / R     Toggle ready/draft state
 a         Approve
 u         Remove approval
 x         Request changes

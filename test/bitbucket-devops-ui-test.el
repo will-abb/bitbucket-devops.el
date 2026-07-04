@@ -478,6 +478,36 @@
           (list (car observed) (caddr observed))
           (list '(:workspace "williseed1" :repo-slug "test") next)))))))
 
+(ert-deftest bitbucket-devops-ui-history-render-preserves-visible-scroll ()
+  (let ((buffer
+         (generate-new-buffer
+          " *bitbucket-devops-history-scroll-test*")))
+    (unwind-protect
+        (save-window-excursion
+          (switch-to-buffer buffer)
+          (bitbucket-devops-pipelines-history-mode)
+          (setq-local
+           bitbucket-devops-ui--history-pipelines
+           (cl-loop
+            for index from 1 to 40
+            collect
+            `((uuid . ,(format "{pipeline-%02d}" index))
+              (build_number . ,index)
+              (created_on . "2026-06-07T12:00:00Z")
+              (state . ((name . "COMPLETED")
+                        (result . ((name . "SUCCESSFUL")))))
+              (target . ((ref_name . "main")
+                         (commit . ((hash . "0123456789abcdef")))))))))
+          (bitbucket-devops-ui--history-render)
+          (goto-char (point-min))
+          (forward-line 12)
+          (set-window-point (selected-window) (point))
+          (set-window-start (selected-window) (point))
+          (let ((start-line (line-number-at-pos (window-start))))
+            (bitbucket-devops-ui--history-render)
+            (should (= (line-number-at-pos (window-start)) start-line)))
+      (kill-buffer buffer))))
+
 (ert-deftest bitbucket-devops-pipelines-history-selects-history-buffer ()
   (let ((buffer (generate-new-buffer " *bitbucket-devops-pipelines-history-test*"))
         selected)
@@ -664,6 +694,25 @@
     (should (bitbucket-devops-ui--goto-step-id "{step-2}"))
     (bitbucket-devops-ui--details-render-steps)
     (should (equal (tabulated-list-get-id) "{step-2}"))))
+
+(ert-deftest bitbucket-devops-ui-details-render-shows-started-time ()
+  (let ((bitbucket-devops-pipelines-display-time-zone t))
+    (with-temp-buffer
+      (bitbucket-devops-pipelines-details-mode)
+      (setq-local bitbucket-devops-ui--details-pipeline
+                  '((uuid . "{pipeline-12}")
+                    (build_number . 12)
+                    (created_on . "2026-05-31T17:16:00.000000+00:00")
+                    (state . ((name . "COMPLETED")
+                              (result . ((name . "SUCCESSFUL")))))
+                    (target . ((ref_name . "main")))))
+      (setq-local bitbucket-devops-ui--details-steps
+                  '(((uuid . "{step-1}") (name . "Build"))))
+      (bitbucket-devops-ui--details-render-steps)
+      (should
+       (string-match-p
+        "Started: 2026-05-31 17:16:00 GMT"
+        (buffer-string))))))
 
 (ert-deftest bitbucket-devops-ui-merge-pipeline-pages-adds-paused-runs ()
   (let* ((page
@@ -1215,6 +1264,7 @@
          (kbd "RET") #'bitbucket-devops-pipelines-history-view-details
          (kbd "t") #'bitbucket-devops-pipelines-watch-selected
          (kbd "d") #'bitbucket-devops-pipelines-history-download-logs
+         (kbd "R") #'bitbucket-devops-pipelines-history-run-configured
          (kbd "TAB") #'bitbucket-devops-pipelines-history-expand-column-at-point
          (kbd "-") #'bitbucket-devops-ui-back
          (kbd "q") #'bitbucket-devops-ui-quit
@@ -1278,6 +1328,10 @@
    (eq
     (lookup-key bitbucket-devops-pipelines-history-mode-map (kbd "d"))
     #'bitbucket-devops-pipelines-history-download-logs))
+  (should
+   (eq
+    (lookup-key bitbucket-devops-pipelines-history-mode-map (kbd "R"))
+    #'bitbucket-devops-pipelines-history-run-configured))
   (should-not
    (eq
     (lookup-key bitbucket-devops-pipelines-history-mode-map (kbd "g"))
@@ -1304,6 +1358,20 @@
    (eq
     (lookup-key bitbucket-devops-pipelines-history-mode-map (kbd "w"))
     #'bitbucket-devops-pipelines-watch-selected)))
+
+(ert-deftest bitbucket-devops-pipelines-history-run-configured-uses-context-root ()
+  (let (observed-directory)
+    (with-temp-buffer
+      (bitbucket-devops-pipelines-history-mode)
+      (setq-local bitbucket-devops-ui--context
+                  '(:workspace "williseed1"
+                    :repo-slug "test"
+                    :root "/tmp/repository/"))
+      (cl-letf (((symbol-function 'bitbucket-devops-pipelines-run-configured)
+                 (lambda (&optional directory)
+                   (setq observed-directory directory))))
+        (bitbucket-devops-pipelines-history-run-configured)))
+    (should (equal observed-directory "/tmp/repository/"))))
 
 (ert-deftest bitbucket-devops-ui-details-download-bindings-match-scope ()
   (should
@@ -1357,6 +1425,7 @@
       (should (string-match-p "RET Details" panel))
       (should (string-match-p "f Choose branch" panel))
       (should (string-match-p "t Track" panel))
+      (should (string-match-p "R Run pipeline" panel))
       (should (string-match-p "TAB Expand column" panel))
       (if (fboundp 'bitbucket-devops-dispatch)
           (should (string-match-p "- Back" panel))
@@ -1410,6 +1479,9 @@
       (should (string-match-p "RET Details" panel))
       (should (string-match-p "c Create" panel))
       (should (string-match-p "r Refresh" panel))
+      (should (string-match-p "P/C-c P Run pipeline" panel))
+      (should (string-match-p "C-c b Checkout branch" panel))
+      (should (string-match-p "C-c w/C-c C-w Watch comments" panel))
       (should (string-match-p "s State" panel))
       (should (string-match-p "f Branch" panel))
       (should (string-match-p "a Author" panel))
@@ -1428,14 +1500,17 @@
         panel))
       (should (string-match-p "M/D Merge / decline" panel))
       (should (string-match-p "C-c e/C-c k Edit / delete comment" panel))
-      (should (string-match-p "r/R Mark ready / draft" panel))
+      (should (string-match-p "r Refresh" panel))
+      (should (string-match-p "P/C-c P Run pipeline" panel))
+      (should (string-match-p "C-c b Checkout branch" panel))
+      (should (string-match-p "C-c w/C-c C-w Watch comments" panel))
+      (should (string-match-p "R Toggle ready/draft" panel))
       (should
        (string-match-p
         (regexp-quote "C-c r/C-c o Resolve / reopen")
         panel))
       (should
        (string-match-p "C-c p e Edit title / Markdown" panel))
-      (should (string-match-p "C-c g Refresh" panel))
       (should (string-match-p "C-c i Inline comment" panel))
       (should
        (string-match-p
@@ -1448,7 +1523,7 @@
                 '((draft . t)))
     (should
      (string-match-p
-      "r/R Mark ready / draft"
+      "R Toggle ready/draft"
       (bitbucket-devops-ui--command-panel-lines (current-buffer)))))
   (with-temp-buffer
     (bitbucket-devops-pull-requests-diff-mode)
