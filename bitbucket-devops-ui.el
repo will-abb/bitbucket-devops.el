@@ -24,12 +24,21 @@
 (require 'bitbucket-devops-rest)
 
 (declare-function bitbucket-devops-dispatch "bitbucket-devops" ())
+(declare-function bitbucket-devops-pipelines-run-configured
+                  "bitbucket-devops-pipelines-mutate"
+                  (&optional directory))
 (declare-function bitbucket-devops-pipelines-watch-pipeline
                   "bitbucket-devops-pipelines-watch"
                   (context pipeline-uuid))
 (declare-function bitbucket-devops-pipelines-rerun "bitbucket-devops-pipelines-mutate" ())
 (declare-function bitbucket-devops-pipelines-stop "bitbucket-devops-pipelines-mutate" ())
 (declare-function bitbucket-devops-pipelines-continue "bitbucket-devops-pipelines-mutate" ())
+(declare-function bitbucket-devops-pull-requests-ui-key-for-command
+                  "bitbucket-devops-pull-requests-ui"
+                  (command))
+(declare-function bitbucket-devops-pull-requests-ui-keys-for-command
+                  "bitbucket-devops-pull-requests-ui"
+                  (command))
 (declare-function evil-define-key* "evil-core" (state keymap key def &rest bindings))
 (declare-function magit-list-local-branch-names "magit-git" ())
 (declare-function magit-list-remote-branch-names "magit-git"
@@ -374,6 +383,57 @@ A width of zero gives the column the remaining line width, matching
            (date-to-time timestamp)
            bitbucket-devops-pipelines-display-time-zone)
         (error timestamp)))))
+
+(defun bitbucket-devops-ui--position-line-column (position)
+  "Return the line and column for POSITION in the current buffer."
+  (save-excursion
+    (goto-char (min (max (point-min) position) (point-max)))
+    (cons (line-number-at-pos) (current-column))))
+
+(defun bitbucket-devops-ui--line-column-position (line-column)
+  "Return the buffer position represented by LINE-COLUMN."
+  (save-excursion
+    (goto-char (point-min))
+    (forward-line (max 0 (1- (car line-column))))
+    (move-to-column (cdr line-column))
+    (point)))
+
+(defun bitbucket-devops-ui--visible-window-states (&optional buffer)
+  "Return visible window point and scroll states for BUFFER."
+  (let ((buffer (or buffer (current-buffer))))
+    (mapcar
+     (lambda (window)
+       (with-current-buffer buffer
+         (list window
+               (bitbucket-devops-ui--position-line-column
+                (window-point window))
+               (bitbucket-devops-ui--position-line-column
+                (window-start window)))))
+     (get-buffer-window-list buffer nil t))))
+
+(defun bitbucket-devops-ui--restore-window-states (buffer states)
+  "Restore BUFFER window point and scroll STATES."
+  (dolist (state states)
+    (let ((window (nth 0 state))
+          (point-state (nth 1 state))
+          (start-state (nth 2 state)))
+      (when (and (window-live-p window)
+                 (eq (window-buffer window) buffer))
+        (with-current-buffer buffer
+          (set-window-point
+           window
+           (bitbucket-devops-ui--line-column-position point-state))
+          (set-window-start
+           window
+           (bitbucket-devops-ui--line-column-position start-state)))))))
+
+(defun bitbucket-devops-ui--preserve-visible-window-positions (function)
+  "Call FUNCTION, preserving visible window scroll positions."
+  (let ((buffer (current-buffer))
+        (states (bitbucket-devops-ui--visible-window-states)))
+    (unwind-protect
+        (funcall function)
+      (bitbucket-devops-ui--restore-window-states buffer states))))
 
 (defun bitbucket-devops-ui--pipeline-row (pipeline)
   "Return a `tabulated-list-mode' entry for PIPELINE."
@@ -738,6 +798,17 @@ Pad the returned cell to WIDTH columns when WIDTH is non-nil."
            (bitbucket-devops-pull-requests-ui-key-for-command command))
       fallback))
 
+(defun bitbucket-devops-ui--pull-request-command-keys (command fallback)
+  "Return configured pull request keys for COMMAND as a display label.
+
+Use FALLBACK when no configured key is available."
+  (if (fboundp 'bitbucket-devops-pull-requests-ui-keys-for-command)
+      (let ((keys (bitbucket-devops-pull-requests-ui-keys-for-command command)))
+        (if keys
+            (string-join keys "/")
+          fallback))
+    fallback))
+
 (defun bitbucket-devops-ui--pull-request-keys
     (first second first-fallback second-fallback)
   "Return a display label for two configured pull request commands."
@@ -765,10 +836,11 @@ Pad the returned cell to WIDTH columns when WIDTH is non-nil."
        (bitbucket-devops-ui--command-panel-cell "s" "Status")
        "\n"
        (bitbucket-devops-ui--command-panel-cell "r" "Refresh" 28)
-       (bitbucket-devops-ui--command-panel-cell "n" "More" 28)
+       (bitbucket-devops-ui--command-panel-cell "R" "Run pipeline" 28)
        (bitbucket-devops-ui--command-panel-cell "q" "Quit")
        "\n"
-       (bitbucket-devops-ui--command-panel-cell "TAB" "Expand column")
+       (bitbucket-devops-ui--command-panel-cell "TAB" "Expand column" 28)
+       (bitbucket-devops-ui--command-panel-cell "n" "More")
        "\n"
        (bitbucket-devops-ui--command-panel-help-cell)
        "\n"))
@@ -871,14 +943,22 @@ Pad the returned cell to WIDTH columns when WIDTH is non-nil."
          'bitbucket-devops-pull-requests-ui-copy-browser-url-at-point "S-RET")
         "Copy browser link" 28)
        (bitbucket-devops-ui--command-panel-cell
-        (bitbucket-devops-ui--pull-request-key
-         'bitbucket-devops-pull-requests-ui-checkout-source-branch "b")
-        "Checkout branch" 28)
+        (bitbucket-devops-ui--pull-request-command-keys
+         'bitbucket-devops-pull-requests-ui-run-pipeline "P")
+        "Run pipeline" 28)
        (bitbucket-devops-ui--command-panel-cell
         (bitbucket-devops-ui--pull-request-key
          'bitbucket-devops-pull-requests-ui-browse "o")
         "Browser")
        "\n"
+       (bitbucket-devops-ui--command-panel-cell
+        (bitbucket-devops-ui--pull-request-key
+         'bitbucket-devops-pull-requests-ui-checkout-source-branch "C-c b")
+        "Checkout branch" 28)
+       (bitbucket-devops-ui--command-panel-cell
+        (bitbucket-devops-ui--pull-request-command-keys
+         'bitbucket-devops-pull-requests-ui-toggle-comment-watch "C-c w")
+        "Watch comments" 28)
        (bitbucket-devops-ui--command-panel-cell
         (bitbucket-devops-ui--pull-request-key
          'bitbucket-devops-ui-show-command-panel "?")
@@ -944,10 +1024,9 @@ Pad the returned cell to WIDTH columns when WIDTH is non-nil."
        "\n"
        (bitbucket-devops-ui--command-panel-back-cell 24)
        (bitbucket-devops-ui--command-panel-cell
-        (bitbucket-devops-ui--pull-request-keys
-         'bitbucket-devops-pull-requests-ui-mark-ready
-         'bitbucket-devops-pull-requests-ui-mark-draft "r" "R")
-        "Mark ready / draft" 34)
+        (bitbucket-devops-ui--pull-request-key
+         'bitbucket-devops-pull-requests-ui-refresh-current "r")
+        "Refresh" 34)
        (bitbucket-devops-ui--command-panel-cell
         (bitbucket-devops-ui--pull-request-keys
          'bitbucket-devops-pull-requests-ui-resolve-comment
@@ -965,20 +1044,23 @@ Pad the returned cell to WIDTH columns when WIDTH is non-nil."
         "Task create")
        "\n"
        (bitbucket-devops-ui--command-panel-cell
-        (bitbucket-devops-ui--pull-request-key
-         'bitbucket-devops-pull-requests-ui-checkout-source-branch "b")
-        "Checkout branch" 24)
+        (bitbucket-devops-ui--pull-request-command-keys
+         'bitbucket-devops-pull-requests-ui-run-pipeline "P")
+        "Run pipeline" 24)
        (bitbucket-devops-ui--command-panel-cell
-        (bitbucket-devops-ui--pull-request-key
-         'bitbucket-devops-pull-requests-ui-refresh-current "C-c g")
-        "Refresh" 34)
+        (bitbucket-devops-ui--pull-request-command-keys
+         'bitbucket-devops-pull-requests-ui-toggle-draft "R")
+        "Toggle ready/draft" 34)
        (bitbucket-devops-ui--command-panel-cell
         (bitbucket-devops-ui--pull-request-keys
          'bitbucket-devops-pull-requests-ui-resolve-task
          'bitbucket-devops-pull-requests-ui-reopen-task "C-c t r" "C-c t o")
         "Task resolve / reopen")
        "\n"
-       (bitbucket-devops-ui--command-panel-cell "" "" 24)
+       (bitbucket-devops-ui--command-panel-cell
+        (bitbucket-devops-ui--pull-request-key
+         'bitbucket-devops-pull-requests-ui-checkout-source-branch "C-c b")
+        "Checkout branch" 24)
        (bitbucket-devops-ui--command-panel-cell
         (bitbucket-devops-ui--pull-request-key
          'bitbucket-devops-pull-requests-ui-add-inline-comment "C-c i")
@@ -987,6 +1069,12 @@ Pad the returned cell to WIDTH columns when WIDTH is non-nil."
         (bitbucket-devops-ui--pull-request-key
          'bitbucket-devops-pull-requests-ui-browse "o")
         "Browser")
+       "\n"
+       (bitbucket-devops-ui--command-panel-cell
+        (bitbucket-devops-ui--pull-request-command-keys
+         'bitbucket-devops-pull-requests-ui-toggle-comment-watch "C-c w")
+        "Watch comments" 24)
+       (bitbucket-devops-ui--command-panel-cell "" "" 34)
        "\n"
        (bitbucket-devops-ui--command-panel-cell
         (bitbucket-devops-ui--pull-request-key
@@ -1541,13 +1629,15 @@ messages and authors.  Fetch each missing unique commit once and cache it."
 
 (defun bitbucket-devops-ui--history-render ()
   "Render pipelines matching the current history buffer filters."
-  (setq tabulated-list-entries
-        (mapcar
-         #'bitbucket-devops-ui--pipeline-row
-         (bitbucket-devops-ui--history-filter-pipelines
-          bitbucket-devops-ui--history-pipelines)))
-  (tabulated-list-print t)
-  (bitbucket-devops-ui--disable-line-wrapping))
+  (bitbucket-devops-ui--preserve-visible-window-positions
+   (lambda ()
+     (setq tabulated-list-entries
+           (mapcar
+            #'bitbucket-devops-ui--pipeline-row
+            (bitbucket-devops-ui--history-filter-pipelines
+             bitbucket-devops-ui--history-pipelines)))
+     (tabulated-list-print t)
+     (bitbucket-devops-ui--disable-line-wrapping))))
 
 (defun bitbucket-devops-ui--history-load-cache ()
   "Load cached pipeline history into the current history buffer."
@@ -2107,12 +2197,16 @@ loading.  CALLBACK receives the complete step list and an error plist."
         (goto-char (point-min))
         (insert
          (format
-          "Pipeline #%s  Type: %s  Target: %s  State: %s\n"
+          "Pipeline #%s  Type: %s  Target: %s  State: %s  Started: %s\n"
           (or (alist-get 'build_number pipeline) "?")
           (bitbucket-devops-ui--pipeline-type-label pipeline)
           (or (bitbucket-devops-ui--nested-get pipeline 'target 'ref_name)
               "?")
-          (bitbucket-devops-ui--pipeline-state-label pipeline)))
+          (bitbucket-devops-ui--pipeline-state-label pipeline)
+          (let ((started
+                 (bitbucket-devops-ui--format-time
+                  (alist-get 'created_on pipeline))))
+            (if (string-empty-p started) "?" started))))
         (insert "\n")))
     (or (and selected-step
              (bitbucket-devops-ui--goto-step-id selected-step))
@@ -2224,6 +2318,17 @@ loading.  CALLBACK receives the complete step list and an error plist."
     (unless pipeline-uuid
       (user-error "No Bitbucket pipeline is selected"))
     (bitbucket-devops-pipelines-details bitbucket-devops-ui--context pipeline-uuid)))
+
+(defun bitbucket-devops-pipelines-history-run-configured ()
+  "Prompt for and trigger a configured pipeline from a history buffer."
+  (interactive)
+  (unless bitbucket-devops-ui--context
+    (user-error "This buffer has no Bitbucket pipeline context"))
+  (unless (fboundp 'bitbucket-devops-pipelines-run-configured)
+    (require 'bitbucket-devops-pipelines-mutate))
+  (bitbucket-devops-pipelines-run-configured
+   (or (plist-get bitbucket-devops-ui--context :root)
+       default-directory)))
 
 (defun bitbucket-devops-pipelines-watch-selected ()
   "Watch the selected pipeline from a history or details buffer."
@@ -2414,6 +2519,8 @@ loading.  CALLBACK receives the complete step list and an error plist."
             #'bitbucket-devops-pipelines-watch-selected)
 (define-key bitbucket-devops-pipelines-history-mode-map (kbd "d")
             #'bitbucket-devops-pipelines-history-download-logs)
+(define-key bitbucket-devops-pipelines-history-mode-map (kbd "R")
+            #'bitbucket-devops-pipelines-history-run-configured)
 (define-key bitbucket-devops-pipelines-history-mode-map (kbd "TAB")
             #'bitbucket-devops-pipelines-history-expand-column-at-point)
 (define-key bitbucket-devops-pipelines-history-mode-map (kbd "-")
@@ -2463,6 +2570,7 @@ loading.  CALLBACK receives the complete step list and an error plist."
    (kbd "RET") #'bitbucket-devops-pipelines-history-view-details
    (kbd "t") #'bitbucket-devops-pipelines-watch-selected
    (kbd "d") #'bitbucket-devops-pipelines-history-download-logs
+   (kbd "R") #'bitbucket-devops-pipelines-history-run-configured
    (kbd "TAB") #'bitbucket-devops-pipelines-history-expand-column-at-point
    (kbd "-") #'bitbucket-devops-ui-back
    (kbd "q") #'bitbucket-devops-ui-quit

@@ -32,6 +32,7 @@ compile:
 			bitbucket-devops-pipelines-mutate.el \
 			bitbucket-devops-pull-requests.el \
 			bitbucket-devops-pull-requests-rest.el \
+			bitbucket-devops-pull-requests-watch.el \
 			bitbucket-devops-pull-requests-ui.el \
 			bitbucket-devops.el
 
