@@ -5,18 +5,51 @@ All notable changes to `bitbucket-devops.el` will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses semantic versioning.
 
-## [2.0.0] - 2026-07-31
+## [3.0.0] - 2026-08-01
+
+### Added
+
+- Added comprehensive setup, authentication, command, customization,
+  development, and live-integration documentation.
+- Expanded production-like Bitbucket Cloud coverage for authenticated reads,
+  pipeline triggers, cancellation, reruns, watchers, deployments, Magit pushes,
+  pull requests, and log downloads.
 
 ### Changed
 
 - Pipeline trigger and rerun commands no longer prompt for additional free-form
   runtime variables by default. Pass a prefix argument to enter variables that
   `bitbucket-pipelines.yml` does not declare.
+- Made GitHub the canonical upstream for MELPA packaging and removed
+  repository-hosting files that do not belong in the GitHub project.
+
+### Fixed
+
+- Added complete package metadata, GPL-3.0-only boilerplate, SPDX identifiers,
+  maintainer metadata, and MELPA-requested AI assistance attribution.
+- Made byte compilation, package-lint, checkdoc, compiled and interpreted ERT,
+  pre-commit, isolated installation, and MELPA-style packaging pass cleanly.
 
 ### Documentation
 
 - Documented that runtime variables are sent to Bitbucket unsecured, and that
   secrets belong in Bitbucket's own secured variables instead.
+
+## [2.0.0] - 2026-07-04
+
+### Added
+
+- Added pull request comment watchers with quiet baselines, notifications,
+  retry backoff, and aggregate mode-line counts.
+- Added configured-pipeline shortcuts to pipeline history and pull request
+  buffers.
+
+### Changed
+
+- Made pull request refresh, ready/draft, checkout, pipeline, and comment-watch
+  keybindings consistent across list and detail buffers.
+- Preserved scroll position during pull request and pipeline history refreshes
+  and displayed pipeline start times in details.
 
 ## [1.0.0] - 2026-06-27
 
