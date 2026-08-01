@@ -541,7 +541,11 @@ TIMEOUT is nil."
         (progn
           (should (equal (plist-get context :workspace) workspace))
           (should (equal (plist-get context :repo-slug) repo-slug))
-          (should (equal (plist-get context :branch) "main"))
+          (let ((default-directory directory))
+            (should
+             (equal
+              (plist-get context :branch)
+              (magit-get-current-branch))))
           (should (plist-get context :commit))
 
           (setq branch-pipeline

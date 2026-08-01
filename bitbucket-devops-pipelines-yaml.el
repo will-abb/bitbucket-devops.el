@@ -1,10 +1,25 @@
 ;;; bitbucket-devops-pipelines-yaml.el --- Parse Bitbucket Pipelines YAML -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026
+;; Copyright (C) 2026 Will Bosch-Bello
 
-;; Author: Will Bosch-Bello
+;; Author: Will Bosch-Bello <williamsbosch@gmail.com>
+;; Assisted-by: Codex:gpt-5.5-codex
+;; Assisted-by: Claude:claude-opus-5
+;; Maintainer: Will Bosch-Bello <williamsbosch@gmail.com>
 ;; Keywords: tools, vc
-;; Package-Requires: ((emacs "29.1") (yaml "1.2.3"))
+;; SPDX-License-Identifier: GPL-3.0-only
+
+;; This program is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License version 3 as
+;; published by the Free Software Foundation.
+;;
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+;;
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
@@ -19,8 +34,12 @@
 (require 'subr-x)
 (require 'yaml)
 
+;; `:noinline' keeps `cl-defstruct' from generating a compiler macro per
+;; accessor.  Those carry an auto-built docstring that exceeds 80 columns
+;; whenever the accessor name is long, and it cannot be shortened from here.
 (cl-defstruct (bitbucket-devops-pipelines-yaml-variable
-               (:constructor bitbucket-devops-pipelines-yaml--make-variable))
+               (:constructor bitbucket-devops-pipelines-yaml--make-variable)
+               (:noinline t))
   "A runtime variable declared by a custom pipeline."
   name
   default
@@ -28,7 +47,8 @@
   description)
 
 (cl-defstruct (bitbucket-devops-pipelines-yaml-option
-               (:constructor bitbucket-devops-pipelines-yaml--make-option))
+               (:constructor bitbucket-devops-pipelines-yaml--make-option)
+               (:noinline t))
   "A manually triggerable pipeline option.
 KIND is `default', `branch', `pull-request', or `custom'.  BRANCH is set for
 `branches' pipeline selectors.  PATTERN is set for pull request and custom
@@ -41,7 +61,8 @@ DEPLOYMENTS contains deployment environment names."
   deployments)
 
 (cl-defstruct (bitbucket-devops-pipelines-yaml-config
-               (:constructor bitbucket-devops-pipelines-yaml--make-config))
+               (:constructor bitbucket-devops-pipelines-yaml--make-config)
+               (:noinline t))
   "Trigger-related metadata from a Bitbucket Pipelines configuration."
   default
   default-envs
@@ -222,7 +243,8 @@ values are sent to Bitbucket as text, so restore their textual representation."
 The default option runs the YAML `default' selector against the current branch.
 Branch options run named `branches' selectors against the current branch.  Pull
 request options run against the open pull request whose source is the current
-branch.  Custom options use their named custom selectors."
+branch.  Custom options use their named custom selectors.
+BRANCH is accepted for call-site symmetry and ignored."
   (ignore branch)
   (append
    (when (bitbucket-devops-pipelines-yaml-config-default config)

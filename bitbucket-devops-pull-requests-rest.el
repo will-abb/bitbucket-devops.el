@@ -1,9 +1,25 @@
 ;;; bitbucket-devops-pull-requests-rest.el --- Bitbucket Pull Request REST wrappers -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026
+;; Copyright (C) 2026 Will Bosch-Bello
 
 ;; Author: Will Bosch-Bello <williamsbosch@gmail.com>
+;; Assisted-by: Codex:gpt-5.5-codex
+;; Assisted-by: Claude:claude-opus-5
+;; Maintainer: Will Bosch-Bello <williamsbosch@gmail.com>
 ;; Keywords: tools, vc
+;; SPDX-License-Identifier: GPL-3.0-only
+
+;; This program is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License version 3 as
+;; published by the Free Software Foundation.
+;;
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+;;
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
@@ -145,8 +161,8 @@ repository's project.  Request NEXT-URL instead of the first page when non-nil."
   "Asynchronously list pull requests for CONTEXT and invoke CALLBACK.
 
 Request NEXT-URL instead of the first page when it is non-nil.  STATE may be a
-Bitbucket pull request state such as \"OPEN\", \"MERGED\", or \"DECLINED\".  When
-STATE is nil, request every supported state."
+Bitbucket pull request state such as \"OPEN\", \"MERGED\", or \"DECLINED\".
+When STATE is nil, request every supported state."
   (bitbucket-devops-rest-request
    "GET"
    (if next-url
@@ -173,7 +189,8 @@ STATE is nil, request every supported state."
 
 (defun bitbucket-devops-pull-requests-rest-create
     (context body callback)
-  "Asynchronously create a pull request in CONTEXT with BODY."
+  "Asynchronously create a pull request in CONTEXT with BODY.
+CALLBACK receives the decoded response and a request error."
   (bitbucket-devops-rest-request
    "POST"
    (bitbucket-devops-rest-repository-url context "pullrequests")
@@ -258,7 +275,8 @@ ready for review."
 
 (defun bitbucket-devops-pull-requests-rest-list-activity
     (context pull-request-id callback &optional next-url)
-  "Asynchronously list activity for PULL-REQUEST-ID and invoke CALLBACK."
+  "Asynchronously list activity for PULL-REQUEST-ID and invoke CALLBACK.
+CONTEXT identifies the Bitbucket repository."
   (bitbucket-devops-rest-request
    "GET"
    (if next-url
@@ -274,7 +292,8 @@ ready for review."
 
 (defun bitbucket-devops-pull-requests-rest-list-comments
     (context pull-request-id callback &optional next-url)
-  "Asynchronously list comments for PULL-REQUEST-ID and invoke CALLBACK."
+  "Asynchronously list comments for PULL-REQUEST-ID and invoke CALLBACK.
+CONTEXT identifies the Bitbucket repository."
   (bitbucket-devops-rest-request
    "GET"
    (if next-url
@@ -290,7 +309,8 @@ ready for review."
 
 (defun bitbucket-devops-pull-requests-rest--comment-url
     (context pull-request-id comment-id &rest segments)
-  "Return a comment URL for CONTEXT, PULL-REQUEST-ID, and COMMENT-ID."
+  "Return a comment URL for CONTEXT, PULL-REQUEST-ID, and COMMENT-ID.
+SEGMENTS are extra path components appended to the URL."
   (apply
    #'bitbucket-devops-pull-requests-rest--pull-request-url
    context
@@ -339,7 +359,8 @@ TEXT is required.  PARENT-ID creates a reply.  INLINE-LOCATION is a plist with
   "Create a comment on PULL-REQUEST-ID with TEXT.
 
 When PARENT-ID is non-nil, create a reply using Bitbucket's `parent.id'
-relationship.  When INLINE-LOCATION is non-nil, create an inline diff comment."
+relationship.  When INLINE-LOCATION is non-nil, create an inline diff comment.
+CONTEXT identifies the Bitbucket repository."
   (bitbucket-devops-rest-request
    "POST"
    (bitbucket-devops-pull-requests-rest--pull-request-url
@@ -353,7 +374,8 @@ relationship.  When INLINE-LOCATION is non-nil, create an inline diff comment."
 
 (defun bitbucket-devops-pull-requests-rest-get-comment
     (context pull-request-id comment-id callback)
-  "Get COMMENT-ID from PULL-REQUEST-ID and invoke CALLBACK."
+  "Get COMMENT-ID from PULL-REQUEST-ID and invoke CALLBACK.
+CONTEXT identifies the Bitbucket repository."
   (bitbucket-devops-rest-request
    "GET"
    (bitbucket-devops-pull-requests-rest--comment-url
@@ -365,7 +387,8 @@ relationship.  When INLINE-LOCATION is non-nil, create an inline diff comment."
 
 (defun bitbucket-devops-pull-requests-rest-update-comment
     (context pull-request-id comment-id text callback)
-  "Update COMMENT-ID on PULL-REQUEST-ID with TEXT."
+  "Update COMMENT-ID on PULL-REQUEST-ID with TEXT.
+CONTEXT identifies the Bitbucket repository."
   (bitbucket-devops-rest-request
    "PUT"
    (bitbucket-devops-pull-requests-rest--comment-url
@@ -377,7 +400,8 @@ relationship.  When INLINE-LOCATION is non-nil, create an inline diff comment."
 
 (defun bitbucket-devops-pull-requests-rest-delete-comment
     (context pull-request-id comment-id callback)
-  "Delete COMMENT-ID from PULL-REQUEST-ID."
+  "Delete COMMENT-ID from PULL-REQUEST-ID.
+CONTEXT identifies the Bitbucket repository."
   (bitbucket-devops-rest-request
    "DELETE"
    (bitbucket-devops-pull-requests-rest--comment-url
@@ -389,7 +413,8 @@ relationship.  When INLINE-LOCATION is non-nil, create an inline diff comment."
 
 (defun bitbucket-devops-pull-requests-rest-resolve-comment
     (context pull-request-id comment-id callback)
-  "Resolve the thread rooted at COMMENT-ID on PULL-REQUEST-ID."
+  "Resolve the thread rooted at COMMENT-ID on PULL-REQUEST-ID.
+CONTEXT identifies the Bitbucket repository."
   (bitbucket-devops-rest-request
    "POST"
    (bitbucket-devops-pull-requests-rest--comment-url
@@ -401,7 +426,8 @@ relationship.  When INLINE-LOCATION is non-nil, create an inline diff comment."
 
 (defun bitbucket-devops-pull-requests-rest-reopen-comment
     (context pull-request-id comment-id callback)
-  "Reopen the thread rooted at COMMENT-ID on PULL-REQUEST-ID."
+  "Reopen the thread rooted at COMMENT-ID on PULL-REQUEST-ID.
+CONTEXT identifies the Bitbucket repository."
   (bitbucket-devops-rest-request
    "DELETE"
    (bitbucket-devops-pull-requests-rest--comment-url
@@ -413,7 +439,8 @@ relationship.  When INLINE-LOCATION is non-nil, create an inline diff comment."
 
 (defun bitbucket-devops-pull-requests-rest-list-commits
     (context pull-request-id callback &optional next-url)
-  "Asynchronously list commits for PULL-REQUEST-ID and invoke CALLBACK."
+  "Asynchronously list commits for PULL-REQUEST-ID and invoke CALLBACK.
+CONTEXT identifies the Bitbucket repository."
   (bitbucket-devops-rest-request
    "GET"
    (if next-url
@@ -429,7 +456,8 @@ relationship.  When INLINE-LOCATION is non-nil, create an inline diff comment."
 
 (defun bitbucket-devops-pull-requests-rest-list-statuses
     (context pull-request-id callback &optional next-url)
-  "Asynchronously list build statuses for PULL-REQUEST-ID and invoke CALLBACK."
+  "Asynchronously list build statuses for PULL-REQUEST-ID and invoke CALLBACK.
+CONTEXT identifies the Bitbucket repository."
   (bitbucket-devops-rest-request
    "GET"
    (if next-url
@@ -445,7 +473,8 @@ relationship.  When INLINE-LOCATION is non-nil, create an inline diff comment."
 
 (defun bitbucket-devops-pull-requests-rest-list-tasks
     (context pull-request-id callback &optional next-url)
-  "Asynchronously list tasks for PULL-REQUEST-ID and invoke CALLBACK."
+  "Asynchronously list tasks for PULL-REQUEST-ID and invoke CALLBACK.
+CONTEXT identifies the Bitbucket repository."
   (bitbucket-devops-rest-request
    "GET"
    (if next-url
@@ -461,7 +490,8 @@ relationship.  When INLINE-LOCATION is non-nil, create an inline diff comment."
 
 (defun bitbucket-devops-pull-requests-rest--task-url
     (context pull-request-id &optional task-id)
-  "Return the task collection or TASK-ID URL for PULL-REQUEST-ID."
+  "Return the task collection or TASK-ID URL for PULL-REQUEST-ID.
+CONTEXT identifies the Bitbucket repository."
   (apply
    #'bitbucket-devops-pull-requests-rest--pull-request-url
    context
@@ -485,7 +515,8 @@ relationship.  When INLINE-LOCATION is non-nil, create an inline diff comment."
 
 (defun bitbucket-devops-pull-requests-rest-create-task
     (context pull-request-id text callback)
-  "Create a task with TEXT on PULL-REQUEST-ID."
+  "Create a task with TEXT on PULL-REQUEST-ID.
+CONTEXT identifies the Bitbucket repository."
   (bitbucket-devops-rest-request
    "POST"
    (bitbucket-devops-pull-requests-rest--task-url context pull-request-id)
@@ -496,7 +527,8 @@ relationship.  When INLINE-LOCATION is non-nil, create an inline diff comment."
 
 (defun bitbucket-devops-pull-requests-rest-get-task
     (context pull-request-id task-id callback)
-  "Get TASK-ID from PULL-REQUEST-ID and invoke CALLBACK."
+  "Get TASK-ID from PULL-REQUEST-ID and invoke CALLBACK.
+CONTEXT identifies the Bitbucket repository."
   (bitbucket-devops-rest-request
    "GET"
    (bitbucket-devops-pull-requests-rest--task-url context pull-request-id task-id)
@@ -507,7 +539,8 @@ relationship.  When INLINE-LOCATION is non-nil, create an inline diff comment."
 
 (defun bitbucket-devops-pull-requests-rest-update-task
     (context pull-request-id task-id callback &optional text state)
-  "Update TASK-ID on PULL-REQUEST-ID with optional TEXT and STATE."
+  "Update TASK-ID on PULL-REQUEST-ID with optional TEXT and STATE.
+CONTEXT identifies the Bitbucket repository."
   (bitbucket-devops-rest-request
    "PUT"
    (bitbucket-devops-pull-requests-rest--task-url context pull-request-id task-id)
@@ -518,7 +551,8 @@ relationship.  When INLINE-LOCATION is non-nil, create an inline diff comment."
 
 (defun bitbucket-devops-pull-requests-rest-delete-task
     (context pull-request-id task-id callback)
-  "Delete TASK-ID from PULL-REQUEST-ID."
+  "Delete TASK-ID from PULL-REQUEST-ID.
+CONTEXT identifies the Bitbucket repository."
   (bitbucket-devops-rest-request
    "DELETE"
    (bitbucket-devops-pull-requests-rest--task-url context pull-request-id task-id)
@@ -529,7 +563,8 @@ relationship.  When INLINE-LOCATION is non-nil, create an inline diff comment."
 
 (defun bitbucket-devops-pull-requests-rest-get-diff
     (context pull-request-id callback)
-  "Asynchronously get the raw diff for PULL-REQUEST-ID and invoke CALLBACK."
+  "Asynchronously get the raw diff for PULL-REQUEST-ID and invoke CALLBACK.
+CONTEXT identifies the Bitbucket repository."
   (bitbucket-devops-rest-request
    "GET"
    (bitbucket-devops-pull-requests-rest--pull-request-url
@@ -543,7 +578,8 @@ relationship.  When INLINE-LOCATION is non-nil, create an inline diff comment."
 
 (defun bitbucket-devops-pull-requests-rest-list-diffstat
     (context pull-request-id callback &optional next-url)
-  "Asynchronously list diffstat for PULL-REQUEST-ID and invoke CALLBACK."
+  "Asynchronously list diffstat for PULL-REQUEST-ID and invoke CALLBACK.
+CONTEXT identifies the Bitbucket repository."
   (bitbucket-devops-rest-request
    "GET"
    (if next-url
@@ -559,7 +595,8 @@ relationship.  When INLINE-LOCATION is non-nil, create an inline diff comment."
 
 (defun bitbucket-devops-pull-requests-rest-approve
     (context pull-request-id callback)
-  "Approve PULL-REQUEST-ID as the current user."
+  "Approve PULL-REQUEST-ID as the current user.
+CONTEXT identifies the Bitbucket repository."
   (bitbucket-devops-rest-request
    "POST"
    (bitbucket-devops-pull-requests-rest--pull-request-url
@@ -573,7 +610,8 @@ relationship.  When INLINE-LOCATION is non-nil, create an inline diff comment."
 
 (defun bitbucket-devops-pull-requests-rest-remove-approval
     (context pull-request-id callback)
-  "Remove the current user's approval from PULL-REQUEST-ID."
+  "Remove the current user's approval from PULL-REQUEST-ID.
+CONTEXT identifies the Bitbucket repository."
   (bitbucket-devops-rest-request
    "DELETE"
    (bitbucket-devops-pull-requests-rest--pull-request-url
@@ -587,7 +625,8 @@ relationship.  When INLINE-LOCATION is non-nil, create an inline diff comment."
 
 (defun bitbucket-devops-pull-requests-rest-request-changes
     (context pull-request-id callback)
-  "Request changes on PULL-REQUEST-ID as the current user."
+  "Request changes on PULL-REQUEST-ID as the current user.
+CONTEXT identifies the Bitbucket repository."
   (bitbucket-devops-rest-request
    "POST"
    (bitbucket-devops-pull-requests-rest--pull-request-url
@@ -601,7 +640,8 @@ relationship.  When INLINE-LOCATION is non-nil, create an inline diff comment."
 
 (defun bitbucket-devops-pull-requests-rest-remove-request-changes
     (context pull-request-id callback)
-  "Remove the current user's request-changes state from PULL-REQUEST-ID."
+  "Remove the current user's request-changes state from PULL-REQUEST-ID.
+CONTEXT identifies the Bitbucket repository."
   (bitbucket-devops-rest-request
    "DELETE"
    (bitbucket-devops-pull-requests-rest--pull-request-url
@@ -615,7 +655,8 @@ relationship.  When INLINE-LOCATION is non-nil, create an inline diff comment."
 
 (defun bitbucket-devops-pull-requests-rest-decline
     (context pull-request-id callback)
-  "Decline PULL-REQUEST-ID."
+  "Decline PULL-REQUEST-ID.
+CONTEXT identifies the Bitbucket repository."
   (bitbucket-devops-rest-request
    "POST"
    (bitbucket-devops-pull-requests-rest--pull-request-url

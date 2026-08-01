@@ -1,9 +1,25 @@
 ;;; bitbucket-devops-pipelines-magit.el --- Watch pipelines after Magit pushes -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026
+;; Copyright (C) 2026 Will Bosch-Bello
 
 ;; Author: Will Bosch-Bello <williamsbosch@gmail.com>
+;; Assisted-by: Codex:gpt-5.5-codex
+;; Assisted-by: Claude:claude-opus-5
+;; Maintainer: Will Bosch-Bello <williamsbosch@gmail.com>
 ;; Keywords: tools, vc
+;; SPDX-License-Identifier: GPL-3.0-only
+
+;; This program is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License version 3 as
+;; published by the Free Software Foundation.
+;;
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+;;
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
@@ -16,8 +32,6 @@
 (require 'subr-x)
 (require 'bitbucket-devops-context)
 (require 'bitbucket-devops-pipelines-watch)
-
-(defvar bitbucket-devops-pipelines-magit-push-watch-mode)
 
 (defcustom bitbucket-devops-pipelines-after-magit-push-hook
   '(bitbucket-devops-pipelines-watch-commit)
@@ -107,15 +121,14 @@ The default starts pipeline discovery for the pushed commit."
 
 (defun bitbucket-devops-pipelines-magit--enable ()
   "Enable automatic pipeline discovery after successful Magit pushes."
-  (with-eval-after-load 'magit-process
-    (when bitbucket-devops-pipelines-magit-push-watch-mode
-      (unless
-          (advice-member-p
-           #'bitbucket-devops-pipelines-magit--around-run-git-async
-           'magit-run-git-async)
-        (advice-add 'magit-run-git-async
-                    :around
-                    #'bitbucket-devops-pipelines-magit--around-run-git-async)))))
+  (require 'magit-process)
+  (unless
+      (advice-member-p
+       #'bitbucket-devops-pipelines-magit--around-run-git-async
+       'magit-run-git-async)
+    (advice-add 'magit-run-git-async
+                :around
+                #'bitbucket-devops-pipelines-magit--around-run-git-async)))
 
 (defun bitbucket-devops-pipelines-magit--disable ()
   "Disable automatic pipeline discovery after successful Magit pushes."

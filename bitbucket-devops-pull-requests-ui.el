@@ -1,9 +1,25 @@
 ;;; bitbucket-devops-pull-requests-ui.el --- Bitbucket Pull Request UI buffers -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026
+;; Copyright (C) 2026 Will Bosch-Bello
 
 ;; Author: Will Bosch-Bello <williamsbosch@gmail.com>
+;; Assisted-by: Codex:gpt-5.5-codex
+;; Assisted-by: Claude:claude-opus-5
+;; Maintainer: Will Bosch-Bello <williamsbosch@gmail.com>
 ;; Keywords: tools, vc
+;; SPDX-License-Identifier: GPL-3.0-only
+
+;; This program is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License version 3 as
+;; published by the Free Software Foundation.
+;;
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+;;
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
@@ -18,6 +34,7 @@
 (require 'subr-x)
 (require 'tabulated-list)
 (require 'time-date)
+(require 'url-parse)
 (require 'url-util)
 (require 'bitbucket-devops-cache)
 (require 'bitbucket-devops-context)
@@ -28,7 +45,7 @@
 
 (declare-function bitbucket-devops-pipelines-run-configured
                   "bitbucket-devops-pipelines-mutate"
-                  (&optional directory))
+                  (&optional directory additional))
 (declare-function bitbucket-devops-pull-requests-watch-comments
                   "bitbucket-devops-pull-requests-watch"
                   (context pull-request))
@@ -465,6 +482,7 @@
     ("P" . bitbucket-devops-pull-requests-ui-run-pipeline)
     ("C-c P" . bitbucket-devops-pull-requests-ui-run-pipeline)
     ("C-c b" . bitbucket-devops-pull-requests-ui-checkout-source-branch)
+    ("t" . bitbucket-devops-pull-requests-ui-toggle-comment-watch)
     ("C-c w" . bitbucket-devops-pull-requests-ui-toggle-comment-watch)
     ("C-c C-w" . bitbucket-devops-pull-requests-ui-toggle-comment-watch)
     ("o" . bitbucket-devops-pull-requests-ui-browse)
@@ -485,13 +503,20 @@ is retained for editing and requests sent to Bitbucket."
   :type 'boolean
   :group 'bitbucket-devops-pull-requests)
 
+(defcustom bitbucket-devops-pull-requests-auto-watch-created nil
+  "When non-nil, prompt to watch comments after creating a pull request.
+
+The prompt defaults to yes.  A watcher starts only when the user accepts."
+  :type 'boolean
+  :group 'bitbucket-devops-pull-requests)
+
 (defcustom bitbucket-devops-pull-requests-build-status-action 'browser
   "Default action for RET on a pull request build status row.
 
 `browser' opens the build status URL with `browse-url'.  `local' opens the
 matching Bitbucket Pipelines details buffer when the status can be mapped to a
-pipeline.  Use a prefix argument, such as C-u before RET, to run the other
-action for one invocation."
+pipeline.  Use a prefix argument, such as \\[universal-argument] before RET,
+to run the other action for one invocation."
   :type '(choice
           (const :tag "Open build status URL in browser" browser)
           (const :tag "Open matching pipeline details buffer locally" local))
@@ -544,8 +569,8 @@ action for one invocation."
   "Evil normal-state keys that start `universal-argument' in PR buffers.
 
 These keys make prefix-sensitive commands behave the same for Evil users as
-ordinary Emacs users.  For example, C-u RET and SPC u RET both invert the
-configured pull request build-status action."
+ordinary Emacs users.  For example, either default key followed by RET inverts
+the configured pull request build-status action."
   :type '(repeat string)
   :set #'bitbucket-devops-pull-requests-ui--set-keybinding-option
   :group 'bitbucket-devops-pull-requests)
@@ -556,8 +581,9 @@ configured pull request build-status action."
 `bitbucket' displays the exact patch returned by Bitbucket Cloud.
 `magit' fetches the pull request revisions and displays their three-dot range
 in Magit.  `ediff' prompts for a changed file and compares its merge-base and
-source versions.  Use `bitbucket-devops-pull-requests-ui-choose-diff-viewer' to select
-a viewer for one invocation without changing this option."
+source versions.  Use
+`bitbucket-devops-pull-requests-ui-choose-diff-viewer' to select a viewer for
+one invocation without changing this option."
   :type '(choice
           (const :tag "Bitbucket patch buffer" bitbucket)
           (const :tag "Magit range diff" magit)
@@ -1156,7 +1182,8 @@ PULL-REQUEST-ID when the loaded record does not include links."
 
 (defun bitbucket-devops-pull-requests-ui--sync-candidates
     (pull-requests)
-  "Return pull requests selected for detail revalidation."
+  "Return pull requests selected for detail revalidation.
+PULL-REQUESTS is the list of pull requests to select from."
   (let* ((sorted
           (bitbucket-devops-pull-requests-ui--sort-pull-requests
            pull-requests))
@@ -1421,6 +1448,43 @@ When FACE is non-nil, apply it to every value."
     (when (and (stringp url)
                (string-match-p "\\`https?://" url))
       url)))
+
+(defun bitbucket-devops-pull-requests-ui--bitbucket-url-p (url)
+  "Return non-nil when URL points to Bitbucket Cloud."
+  (when-let ((host
+              (ignore-errors
+                (url-host (url-generic-parse-url url)))))
+    (member (downcase host)
+            '("bitbucket.org" "www.bitbucket.org" "api.bitbucket.org"))))
+
+(defun bitbucket-devops-pull-requests-ui--bitbucket-pipeline-url-p (url)
+  "Return non-nil when URL points to a Bitbucket Pipelines result."
+  (when (and (stringp url)
+             (bitbucket-devops-pull-requests-ui--bitbucket-url-p url))
+    (let ((decoded (url-unhex-string url)))
+      (or
+       (string-match-p
+        (rx "/pipelines/results/" (+ digit))
+        decoded)
+       (string-match-p
+        (rx "/addon/pipelines/home" (* anything) "/results/" (+ digit))
+        decoded)
+       (string-match-p
+        (rx "/pipelines/" "{" (+ (not (any "/?"))) "}")
+        decoded)))))
+
+(defun bitbucket-devops-pull-requests-ui--status-explicit-pipeline-uuid
+    (status)
+  "Return a pipeline UUID explicitly advertised by STATUS, or nil."
+  (or (bitbucket-devops-pull-requests--nested-get status 'pipeline 'uuid)
+      (alist-get 'pipeline_uuid status)))
+
+(defun bitbucket-devops-pull-requests-ui--status-local-pipeline-p (status)
+  "Return non-nil when STATUS can be opened as a local Bitbucket pipeline."
+  (or
+   (bitbucket-devops-pull-requests-ui--status-explicit-pipeline-uuid status)
+   (when-let ((url (bitbucket-devops-pull-requests-ui--status-url status)))
+     (bitbucket-devops-pull-requests-ui--bitbucket-pipeline-url-p url))))
 
 (defun bitbucket-devops-pull-requests-ui--insert-statuses (statuses)
   "Insert individual build STATUSES with provider links."
@@ -1838,6 +1902,9 @@ When FACE is non-nil, apply it to every value."
                   bitbucket-devops-pull-requests-ui--details-comments))
               (unless (alist-get 'deleted comment)
                 (let ((reply (bitbucket-devops-pull-requests-comment-reply-p comment))
+                      (created
+                       (bitbucket-devops-pull-requests-ui--format-time
+                        (alist-get 'created_on comment)))
                       (location
                        (bitbucket-devops-pull-requests-ui--comment-location comment)))
                   (bitbucket-devops-pull-requests-ui--insert-comment-divider
@@ -1854,6 +1921,13 @@ When FACE is non-nil, apply it to every value."
                      (bitbucket-devops-pull-requests-ui--style
                       (bitbucket-devops-pull-requests-comment-author-name comment)
                       'bitbucket-devops-pull-requests-author-face)
+                     (if (string-empty-p created)
+                         ""
+                       (concat
+                        " "
+                        (bitbucket-devops-pull-requests-ui--style
+                         (format "[%s]" created)
+                         'bitbucket-devops-pull-requests-secondary-face)))
                      (if (bitbucket-devops-pull-requests-comment-resolved-p
                           comment)
                          (concat
@@ -1875,16 +1949,7 @@ When FACE is non-nil, apply it to every value."
                      (bitbucket-devops-pull-requests-ui--style
                       (bitbucket-devops-pull-requests-ui--display-comment-text
                        (bitbucket-devops-pull-requests-comment-text comment))
-                      'bitbucket-devops-pull-requests-description-face)
-                     (or
-                      (when-let ((created (alist-get 'created_on comment)))
-                        (concat
-                         "  "
-                         (bitbucket-devops-pull-requests-ui--style
-                          (bitbucket-devops-pull-requests-ui--format-time
-                           created)
-                          'bitbucket-devops-pull-requests-secondary-face)))
-                      ""))
+                      'bitbucket-devops-pull-requests-description-face))
                     (add-text-properties
                      line-start
                      (point)
@@ -2075,7 +2140,8 @@ When REPLACE is non-nil, replace the loaded rows.  Otherwise append them."
                    &optional next-url collected-values)
   "Collect all REST-FUNCTION pages for PULL-REQUEST-ID, then invoke CALLBACK.
 
-CALLBACK receives the complete value list and an error value."
+CALLBACK receives the complete value list and an error value.
+CONTEXT identifies the Bitbucket repository."
   (funcall
    rest-function
    context
@@ -2095,7 +2161,8 @@ CALLBACK receives the complete value list and an error value."
 
 (defun bitbucket-devops-pull-requests-ui--collect-statuses
     (context pull-request-id callback &optional next-url statuses)
-  "Collect all build statuses for PULL-REQUEST-ID, then invoke CALLBACK."
+  "Collect all build statuses for PULL-REQUEST-ID, then invoke CALLBACK.
+CONTEXT identifies the Bitbucket repository."
   (bitbucket-devops-pull-requests-ui--collect-pages
    #'bitbucket-devops-pull-requests-rest-list-statuses
    context pull-request-id callback next-url statuses))
@@ -2523,7 +2590,8 @@ NEXT-URL and COLLECTED are used internally while following pagination."
 
 (defun bitbucket-devops-pull-requests-ui--create-with-default-reviewers
     (buffer create-arguments reviewers error)
-  "Create from BUFFER and CREATE-ARGUMENTS using effective REVIEWERS."
+  "Create from BUFFER and CREATE-ARGUMENTS using effective REVIEWERS.
+ERROR is a request error from the preceding lookup, or nil."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
       (if error
@@ -2578,7 +2646,9 @@ NEXT-URL and COLLECTED are used internally while following pagination."
 
 (defun bitbucket-devops-pull-requests-ui--open-create-description-editor
     (metadata reviewer-strategy)
-  "Open a Markdown editor for a new pull request description."
+  "Open a Markdown editor for a new pull request description.
+METADATA supplies the pull request fields collected so far.
+REVIEWER-STRATEGY selects how reviewers are resolved."
   (let* ((source-buffer (current-buffer))
          (buffer
           (get-buffer-create
@@ -2624,6 +2694,37 @@ NEXT-URL and COLLECTED are used internally while following pagination."
       (bitbucket-devops-pull-requests-ui--open-create-description-editor
        metadata strategy))))
 
+(defun bitbucket-devops-pull-requests-ui--read-watch-created-p
+    (pull-request-id)
+  "Return non-nil when the user wants to watch created PULL-REQUEST-ID."
+  (let (answer)
+    (while
+        (progn
+          (setq answer
+                (downcase
+                 (string-trim
+                  (read-string
+                   (format
+                    "Watch comments for pull request #%s? [Y/n]: "
+                    pull-request-id)))))
+          (unless (member answer '("" "y" "yes" "n" "no"))
+            (message "Please answer y or n"))
+          (not (member answer '("" "y" "yes" "n" "no")))))
+    (not (null (member answer '("" "y" "yes"))))))
+
+(defun bitbucket-devops-pull-requests-ui--maybe-watch-created
+    (context pull-request)
+  "Prompt to watch comments for created PULL-REQUEST in CONTEXT."
+  (when bitbucket-devops-pull-requests-auto-watch-created
+    (let ((pull-request-id (alist-get 'id pull-request)))
+      (when (and pull-request-id
+                 (bitbucket-devops-pull-requests-ui--read-watch-created-p
+                  pull-request-id))
+        (require 'bitbucket-devops-pull-requests-watch)
+        (bitbucket-devops-pull-requests-watch-comments context pull-request)
+        (message "Watching Bitbucket pull request #%s comments"
+                 pull-request-id)))))
+
 (defun bitbucket-devops-pull-requests-ui--finish-create
     (buffer context pull-request &optional reviewer-error)
   "Finish creating PULL-REQUEST from BUFFER in CONTEXT.
@@ -2640,11 +2741,14 @@ default reviewers failed."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
       (bitbucket-devops-pull-requests-ui-refresh)))
+  (bitbucket-devops-pull-requests-ui--maybe-watch-created context pull-request)
   (bitbucket-devops-pull-requests-ui-show-details context pull-request))
 
 (defun bitbucket-devops-pull-requests-ui--apply-default-reviewers
     (buffer context pull-request reviewer-identifiers)
-  "Apply REVIEWER-IDENTIFIERS to PULL-REQUEST, excluding its author."
+  "Apply REVIEWER-IDENTIFIERS to PULL-REQUEST, excluding its author.
+BUFFER is the buffer to act on.
+CONTEXT identifies the Bitbucket repository."
   (let* ((author (alist-get 'author pull-request))
          (author-identifier
           (bitbucket-devops-pull-requests-ui--reviewer-identifier author))
@@ -2776,7 +2880,8 @@ reviewers."
   "Store VALUE in BUFFER-local VARIABLE and render.
 
 SECTION identifies the request in errors.  When PAGE-VALUES is non-nil, store
-the paginated `values' array from VALUE."
+the paginated `values' array from VALUE.
+BUFFER is the buffer to act on."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
       (if error
@@ -2794,7 +2899,9 @@ the paginated `values' array from VALUE."
   "Fetch complete top-level COMMENTS and invoke CALLBACK with the result.
 
 Bitbucket's list-comments response can omit the `resolution' field even when a
-thread is resolved.  Individual comment responses include that field."
+thread is resolved.  Individual comment responses include that field.
+CONTEXT identifies the Bitbucket repository.
+PULL-REQUEST-ID identifies the pull request."
   (let* ((result (copy-tree comments))
          (top-level
           (seq-filter
@@ -2979,15 +3086,19 @@ thread is resolved.  Individual comment responses include that field."
    (t
     (user-error "This command requires a pull request list or detail buffer"))))
 
-(defun bitbucket-devops-pull-requests-ui-run-pipeline ()
-  "Run a configured pipeline from the current pull request buffer's repository."
-  (interactive)
+(defun bitbucket-devops-pull-requests-ui-run-pipeline (&optional additional)
+  "Run a configured pipeline from the current pull request buffer's repository.
+
+With a prefix argument, or when ADDITIONAL is non-nil, also prompt for
+free-form runtime variables that `bitbucket-pipelines.yml' does not declare."
+  (interactive "P")
   (unless bitbucket-devops-pull-requests-ui--context
     (user-error "This buffer is not associated with a Bitbucket repository"))
   (require 'bitbucket-devops-pipelines-mutate)
   (bitbucket-devops-pipelines-run-configured
    (or (plist-get bitbucket-devops-pull-requests-ui--context :root)
-       default-directory)))
+       default-directory)
+   additional))
 
 (defun bitbucket-devops-pull-requests-ui-toggle-comment-watch ()
   "Toggle comment notifications for the selected pull request."
@@ -3057,7 +3168,8 @@ thread is resolved.  Individual comment responses include that field."
 
 In a pull request list buffer, open the row at point when point is on a row.
 When point is on the list header or empty space, open the repository pull
-request list.  In a detail buffer, open the displayed pull request."
+request list.  In a detail buffer, open the displayed pull request.
+With a prefix argument, COPY the URL to the kill ring instead."
   (interactive "P")
   (unless bitbucket-devops-pull-requests-ui--context
     (user-error "This buffer is not associated with a Bitbucket repository"))
@@ -3075,7 +3187,8 @@ request list.  In a detail buffer, open the displayed pull request."
       (bitbucket-devops-pull-requests-ui--browse-url url))))
 
 (defun bitbucket-devops-pull-requests-ui-browse-status (&optional pipeline)
-  "Open the build status URL at point in a browser."
+  "Open the build status URL at point in a browser.
+With a prefix argument, PIPELINE opens the pipeline instead."
   (interactive "P")
   (if pipeline
       (bitbucket-devops-pull-requests-ui-open-status-pipeline)
@@ -3092,23 +3205,31 @@ request list.  In a detail buffer, open the displayed pull request."
 
 (defun bitbucket-devops-pull-requests-ui--status-pipeline-uuid (status)
   "Return a pipeline UUID advertised by STATUS, or nil."
-  (or (bitbucket-devops-pull-requests--nested-get status 'pipeline 'uuid)
-      (alist-get 'pipeline_uuid status)
+  (or (bitbucket-devops-pull-requests-ui--status-explicit-pipeline-uuid
+       status)
       (when-let ((url (bitbucket-devops-pull-requests-ui--status-url status)))
-        (let ((decoded (url-unhex-string url)))
-          (when (string-match
-                 (rx "/pipelines/" (group "{" (+ (not (any "/?"))) "}"))
-                 decoded)
-            (match-string 1 decoded))))))
+        (when (bitbucket-devops-pull-requests-ui--bitbucket-pipeline-url-p
+               url)
+          (let ((decoded (url-unhex-string url)))
+            (when (string-match
+                   (rx "/pipelines/" (group "{" (+ (not (any "/?"))) "}"))
+                   decoded)
+              (match-string 1 decoded)))))))
 
 (defun bitbucket-devops-pull-requests-ui--status-build-number (status)
   "Return the pipeline build number advertised by STATUS, or nil."
-  (or (alist-get 'build_number status)
-      (when-let ((url (bitbucket-devops-pull-requests-ui--status-url status)))
-        (when (string-match
-               (rx "/pipelines/results/" (group (+ digit)))
-               url)
-          (string-to-number (match-string 1 url))))))
+  (when (bitbucket-devops-pull-requests-ui--status-local-pipeline-p status)
+    (let ((build-number (alist-get 'build_number status)))
+      (or
+       (cond
+        ((integerp build-number) build-number)
+        ((stringp build-number) (string-to-number build-number)))
+       (when-let ((url (bitbucket-devops-pull-requests-ui--status-url status)))
+         (let ((decoded (url-unhex-string url)))
+           (when (string-match
+                  (rx "/pipelines/results/" (group (+ digit)))
+                  decoded)
+             (string-to-number (match-string 1 decoded)))))))))
 
 (defun bitbucket-devops-pull-requests-ui--pipeline-build-number (pipeline)
   "Return PIPELINE's numeric build number, or nil."
@@ -3199,7 +3320,14 @@ With ALTERNATE, run the action not selected by
       (setq action (if (eq action 'browser) 'local 'browser)))
     (pcase action
       ('browser (bitbucket-devops-pull-requests-ui-browse-status))
-      ('local (bitbucket-devops-pull-requests-ui-open-status-pipeline))
+      ('local
+       (let ((status
+              (or (bitbucket-devops-pull-requests-ui--status-at-point)
+                  (user-error "No Bitbucket build status at point"))))
+         (if (bitbucket-devops-pull-requests-ui--status-local-pipeline-p
+              status)
+             (bitbucket-devops-pull-requests-ui-open-status-pipeline)
+           (bitbucket-devops-pull-requests-ui-browse-status))))
       (_
        (user-error
         "Invalid `bitbucket-devops-pull-requests-build-status-action': %s"
@@ -3474,7 +3602,8 @@ without resetting it, or create a tracking branch when it does not exist."
 
 (defun bitbucket-devops-pull-requests-ui--diff-header-line
     (context pull-request-id &optional file-count)
-  "Return a styled diff header for CONTEXT and PULL-REQUEST-ID."
+  "Return a styled diff header for CONTEXT and PULL-REQUEST-ID.
+Optional FILE-COUNT is shown in the header when non-nil."
   (append
    (list
     " "
@@ -3618,7 +3747,7 @@ without resetting it, or create a tracking branch when it does not exist."
   (bitbucket-devops-pull-requests-ui--clear-unconfigured-map-bindings
    bitbucket-devops-pull-requests-list-mode-map
    bitbucket-devops-pull-requests-list-keybindings
-   '("b" "B"))
+   '("b" "B" "t" "w" "W"))
   (bitbucket-devops-pull-requests-ui--apply-map-bindings
    'detail bitbucket-devops-pull-requests-detail-mode-map
    (bitbucket-devops-pull-requests-ui--detail-bindings))
@@ -3677,7 +3806,8 @@ without resetting it, or create a tracking branch when it does not exist."
    "\n\n"))
 
 (defun bitbucket-devops-pull-requests-ui--render-commits (commits &optional preserve-point)
-  "Render COMMITS in the current pull request commits buffer."
+  "Render COMMITS in the current pull request commits buffer.
+When PRESERVE-POINT is non-nil, restore point afterwards."
   (let ((position (and preserve-point (point)))
         (inhibit-read-only t))
     (setq-local header-line-format
@@ -3838,7 +3968,8 @@ without resetting it, or create a tracking branch when it does not exist."
 
 (defun bitbucket-devops-pull-requests-ui--render-activity
     (activities &optional preserve-point)
-  "Render ACTIVITIES in the current pull request activity buffer."
+  "Render ACTIVITIES in the current pull request activity buffer.
+When PRESERVE-POINT is non-nil, restore point afterwards."
   (let ((position (and preserve-point (point)))
         (inhibit-read-only t))
     (setq-local header-line-format
@@ -3900,7 +4031,8 @@ without resetting it, or create a tracking branch when it does not exist."
                (message "Refreshed Bitbucket pull request activity")))))))))
 
 (defun bitbucket-devops-pull-requests-ui--replace-diff (diff-text &optional preserve-point)
-  "Replace the current diff with DIFF-TEXT."
+  "Replace the current diff with DIFF-TEXT.
+When PRESERVE-POINT is non-nil, restore point afterwards."
   (let ((position (and preserve-point (point)))
         (inhibit-read-only t))
     (erase-buffer)
@@ -4028,7 +4160,8 @@ Return an empty string when PATH is nil, as for an added or deleted side."
 
 (defun bitbucket-devops-pull-requests-ui--ediff-buffer
     (context pull-request-id side path content)
-  "Create an Ediff buffer for SIDE PATH and CONTENT in CONTEXT."
+  "Create an Ediff buffer for SIDE PATH and CONTENT in CONTEXT.
+PULL-REQUEST-ID identifies the pull request."
   (let ((buffer
          (generate-new-buffer
           (format
@@ -4433,7 +4566,8 @@ Signal a `user-error' outside a Bitbucket pull request detail buffer."
 
 (defun bitbucket-devops-pull-requests-ui--inline-comment-callback
     (buffer success-message)
-  "Return a callback for inline comment creation in BUFFER."
+  "Return a callback for inline comment creation in BUFFER.
+SUCCESS-MESSAGE is reported when the request succeeds."
   (lambda (_result error)
     (when (buffer-live-p buffer)
       (with-current-buffer buffer
@@ -5013,7 +5147,10 @@ Signal a `user-error' outside a Bitbucket pull request detail buffer."
 
 (defun bitbucket-devops-pull-requests-ui--update-metadata
     (title description draft success-message)
-  "Update the current pull request metadata and report SUCCESS-MESSAGE."
+  "Update the current pull request metadata and report SUCCESS-MESSAGE.
+TITLE is the pull request title to store.
+DESCRIPTION is the pull request description to store.
+DRAFT sets the pull request draft state."
   (pcase-let ((`(,context ,pull-request-id)
                (bitbucket-devops-pull-requests-ui--require-details-context)))
     (bitbucket-devops-pull-requests-rest-update
@@ -5047,7 +5184,8 @@ calling Bitbucket when the pull request already has the requested state."
   "Edit the current pull request TITLE and DESCRIPTION.
 
 Interactive use reads the one-line title, then opens DESCRIPTION in a Markdown
-side buffer.  Non-interactive callers update both values immediately."
+side buffer.  Non-interactive callers update both values immediately.
+When INTERACTIVE is non-nil, prompt for both values."
   (interactive (list nil nil t))
   (if interactive
       (bitbucket-devops-pull-requests-ui--open-description-editor
@@ -5208,7 +5346,9 @@ side buffer.  Non-interactive callers update both values immediately."
 
 (defun bitbucket-devops-pull-requests-ui--collect-user-pages
     (rest-function context callback &optional next-url collected)
-  "Collect user pages from REST-FUNCTION for CONTEXT, then call CALLBACK."
+  "Collect user pages from REST-FUNCTION for CONTEXT, then call CALLBACK.
+NEXT-URL continues a paginated request when non-nil.
+COLLECTED accumulates users across pages."
   (funcall
    rest-function
    context
@@ -5314,7 +5454,8 @@ users are returned without a network request unless FORCE-REFRESH is non-nil."
 
 (defun bitbucket-devops-pull-requests-ui--update-reviewers
     (reviewer-identifiers success-message)
-  "Replace current reviewers and report SUCCESS-MESSAGE."
+  "Replace current reviewers and report SUCCESS-MESSAGE.
+REVIEWER-IDENTIFIERS name the reviewers to set."
   (pcase-let ((`(,context ,pull-request-id)
                (bitbucket-devops-pull-requests-ui--require-details-context)))
     (bitbucket-devops-pull-requests-rest-update
@@ -5624,7 +5765,7 @@ When CLOSE-SOURCE-BRANCH is non-nil, delete the source branch after merging."
   (bitbucket-devops-pull-requests-ui--clear-unconfigured-evil-bindings
    bitbucket-devops-pull-requests-list-mode-map
    bitbucket-devops-pull-requests-list-keybindings
-   '("b" "B"))
+   '("b" "B" "t" "w" "W"))
   (bitbucket-devops-pull-requests-ui--install-evil-map-bindings
    'detail bitbucket-devops-pull-requests-detail-mode-map
    (bitbucket-devops-pull-requests-ui--detail-bindings))
@@ -5643,8 +5784,26 @@ When CLOSE-SOURCE-BRANCH is non-nil, delete the source branch after merging."
    'activity bitbucket-devops-pull-requests-activity-mode-map
    bitbucket-devops-pull-requests-subview-keybindings))
 
-(with-eval-after-load 'evil
-  (bitbucket-devops-pull-requests-ui--install-evil-bindings))
+(defvar bitbucket-devops-pull-requests-ui--evil-bindings-installed nil
+  "Non-nil once Evil bindings for pull request buffers have been installed.")
+
+(defun bitbucket-devops-pull-requests-ui-install-evil-bindings ()
+  "Install Evil bindings for pull request buffers when Evil is loaded.
+
+Does nothing when Evil is absent, and installs at most once.  This runs
+from the pull request major modes rather than at load time, so Evil only
+has to be loaded by the time the first pull request buffer is opened."
+  (when (and (featurep 'evil)
+             (not bitbucket-devops-pull-requests-ui--evil-bindings-installed))
+    (setq bitbucket-devops-pull-requests-ui--evil-bindings-installed t)
+    (bitbucket-devops-pull-requests-ui--install-evil-bindings)))
+
+(dolist (hook '(bitbucket-devops-pull-requests-list-mode-hook
+                bitbucket-devops-pull-requests-detail-mode-hook
+                bitbucket-devops-pull-requests-diff-mode-hook
+                bitbucket-devops-pull-requests-commits-mode-hook
+                bitbucket-devops-pull-requests-activity-mode-hook))
+  (add-hook hook #'bitbucket-devops-pull-requests-ui-install-evil-bindings))
 
 ;;;###autoload
 (defun bitbucket-devops-pull-requests-list ()

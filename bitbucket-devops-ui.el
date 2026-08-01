@@ -1,9 +1,25 @@
 ;;; bitbucket-devops-ui.el --- Bitbucket DevOps UI and pipeline buffers -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026
+;; Copyright (C) 2026 Will Bosch-Bello
 
 ;; Author: Will Bosch-Bello <williamsbosch@gmail.com>
+;; Assisted-by: Codex:gpt-5.5-codex
+;; Assisted-by: Claude:claude-opus-5
+;; Maintainer: Will Bosch-Bello <williamsbosch@gmail.com>
 ;; Keywords: tools, vc
+;; SPDX-License-Identifier: GPL-3.0-only
+
+;; This program is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License version 3 as
+;; published by the Free Software Foundation.
+;;
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+;;
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
@@ -13,12 +29,14 @@
 ;;; Code:
 
 (require 'ansi-color)
+(require 'browse-url)
 (require 'cl-lib)
 (require 'compile)
 (require 'seq)
 (require 'subr-x)
 (require 'tabulated-list)
 (require 'time-date)
+(require 'url-util)
 (require 'bitbucket-devops-cache)
 (require 'bitbucket-devops-context)
 (require 'bitbucket-devops-rest)
@@ -26,11 +44,13 @@
 (declare-function bitbucket-devops-dispatch "bitbucket-devops" ())
 (declare-function bitbucket-devops-pipelines-run-configured
                   "bitbucket-devops-pipelines-mutate"
-                  (&optional directory))
+                  (&optional directory additional))
 (declare-function bitbucket-devops-pipelines-watch-pipeline
                   "bitbucket-devops-pipelines-watch"
                   (context pipeline-uuid))
-(declare-function bitbucket-devops-pipelines-rerun "bitbucket-devops-pipelines-mutate" ())
+(declare-function bitbucket-devops-pipelines-rerun
+                  "bitbucket-devops-pipelines-mutate"
+                  (&optional additional))
 (declare-function bitbucket-devops-pipelines-stop "bitbucket-devops-pipelines-mutate" ())
 (declare-function bitbucket-devops-pipelines-continue "bitbucket-devops-pipelines-mutate" ())
 (declare-function bitbucket-devops-pull-requests-ui-key-for-command
@@ -135,7 +155,7 @@ on.  The value `never' disables both automatic display and `?' display."
   :group 'bitbucket-devops-pipelines)
 
 (defcustom bitbucket-devops-pipelines-auto-download-logs nil
-  "Whether trackers download completed pipeline logs automatically."
+  "Whether watchers download completed pipeline logs automatically."
   :type 'boolean
   :group 'bitbucket-devops-pipelines)
 
@@ -603,7 +623,8 @@ configured-remote Git refs reported by Magit."
   (not (bitbucket-devops-ui--step-log-unavailable-reason pipeline step)))
 
 (defun bitbucket-devops-ui--require-step-log-available (pipeline step)
-  "Signal an actionable `user-error' unless STEP log can be requested."
+  "Signal an actionable `user-error' unless STEP log can be requested.
+PIPELINE is the pipeline owning STEP."
   (when-let ((reason
               (bitbucket-devops-ui--step-log-unavailable-reason
                pipeline
@@ -811,7 +832,9 @@ Use FALLBACK when no configured key is available."
 
 (defun bitbucket-devops-ui--pull-request-keys
     (first second first-fallback second-fallback)
-  "Return a display label for two configured pull request commands."
+  "Return a display label for two configured pull request commands.
+FIRST and SECOND are the configured command symbols.
+FIRST-FALLBACK and SECOND-FALLBACK are shown when unbound."
   (format
    "%s/%s"
    (bitbucket-devops-ui--pull-request-key first first-fallback)
@@ -828,19 +851,23 @@ Use FALLBACK when no configured key is available."
        (bitbucket-devops-ui--command-panel-heading "Filters")
        "\n"
        (bitbucket-devops-ui--command-panel-cell "RET" "Details" 28)
-       (bitbucket-devops-ui--command-panel-cell "d" "Download logs" 28)
+       (bitbucket-devops-ui--command-panel-cell "o" "Browser" 28)
        (bitbucket-devops-ui--command-panel-cell "f" "Choose branch")
        "\n"
        (bitbucket-devops-ui--command-panel-back-cell 28)
-       (bitbucket-devops-ui--command-panel-cell "t" "Track" 28)
+       (bitbucket-devops-ui--command-panel-cell "S-RET" "Copy link" 28)
        (bitbucket-devops-ui--command-panel-cell "s" "Status")
        "\n"
        (bitbucket-devops-ui--command-panel-cell "r" "Refresh" 28)
-       (bitbucket-devops-ui--command-panel-cell "R" "Run pipeline" 28)
+       (bitbucket-devops-ui--command-panel-cell "d" "Download logs" 28)
        (bitbucket-devops-ui--command-panel-cell "q" "Quit")
        "\n"
        (bitbucket-devops-ui--command-panel-cell "TAB" "Expand column" 28)
-       (bitbucket-devops-ui--command-panel-cell "n" "More")
+       (bitbucket-devops-ui--command-panel-cell "t" "Track" 28)
+       (bitbucket-devops-ui--command-panel-cell "O" "Browser list")
+       "\n"
+       (bitbucket-devops-ui--command-panel-cell "n" "More" 28)
+       (bitbucket-devops-ui--command-panel-cell "R" "Run pipeline" 28)
        "\n"
        (bitbucket-devops-ui--command-panel-help-cell)
        "\n"))
@@ -854,17 +881,21 @@ Use FALLBACK when no configured key is available."
        (bitbucket-devops-ui--command-panel-cell "d" "Download selected" 28)
        (bitbucket-devops-ui--command-panel-cell "t" "Track")
        "\n"
-       (bitbucket-devops-ui--command-panel-back-cell 28)
+       (bitbucket-devops-ui--command-panel-cell "o" "Browser" 28)
        (bitbucket-devops-ui--command-panel-cell "D" "Download all" 28)
        (bitbucket-devops-ui--command-panel-cell "R" "Rerun")
        "\n"
-       (bitbucket-devops-ui--command-panel-cell "r" "Refresh" 28)
-       (bitbucket-devops-ui--command-panel-cell "" "" 28)
+       (bitbucket-devops-ui--command-panel-back-cell 28)
+       (bitbucket-devops-ui--command-panel-cell "S-RET" "Copy link" 28)
        (bitbucket-devops-ui--command-panel-cell "s" "Stop")
        "\n"
-       (bitbucket-devops-ui--command-panel-cell "q" "Quit")
+       (bitbucket-devops-ui--command-panel-cell "r" "Refresh" 28)
        (bitbucket-devops-ui--command-panel-cell "" "" 28)
        (bitbucket-devops-ui--command-panel-cell "c" "Continue")
+       "\n"
+       (bitbucket-devops-ui--command-panel-cell "q" "Quit" 28)
+       (bitbucket-devops-ui--command-panel-cell "" "" 28)
+       (bitbucket-devops-ui--command-panel-cell "O" "Browser list")
        "\n"
        (bitbucket-devops-ui--command-panel-help-cell)
        "\n"))
@@ -882,11 +913,11 @@ Use FALLBACK when no configured key is available."
        "\n"))
      ((derived-mode-p 'bitbucket-devops-pipelines-watch-list-mode)
       (concat
-       (bitbucket-devops-ui--command-panel-heading "Tracking")
+       (bitbucket-devops-ui--command-panel-heading "Watchers")
        "\n"
-       (bitbucket-devops-ui--command-panel-cell "m" "Toggle Magit push tracking")
+       (bitbucket-devops-ui--command-panel-cell "m" "Toggle Magit push pipeline watching")
        "\n"
-       (bitbucket-devops-ui--command-panel-cell "x" "Stop selected tracker")
+       (bitbucket-devops-ui--command-panel-cell "x" "Stop selected watcher")
        "\n"
        (when (bitbucket-devops-ui--can-go-back-p)
          (concat
@@ -899,8 +930,9 @@ Use FALLBACK when no configured key is available."
      ((derived-mode-p 'bitbucket-devops-pull-requests-list-mode)
       (concat
        (bitbucket-devops-ui--command-panel-heading "Navigate" 28)
-       (bitbucket-devops-ui--command-panel-heading "Pull Request" 28)
-       (bitbucket-devops-ui--command-panel-heading "Filters")
+       (bitbucket-devops-ui--command-panel-heading "Pull Request" 38)
+       (bitbucket-devops-ui--command-panel-heading "Filters" 18)
+       (bitbucket-devops-ui--command-panel-heading "Session")
        "\n"
        (bitbucket-devops-ui--command-panel-cell
         (bitbucket-devops-ui--pull-request-key
@@ -909,34 +941,32 @@ Use FALLBACK when no configured key is available."
        (bitbucket-devops-ui--command-panel-cell
         (bitbucket-devops-ui--pull-request-key
          'bitbucket-devops-pull-requests-ui-create "c")
-        "Create" 28)
+        "Create" 38)
        (bitbucket-devops-ui--command-panel-cell
         (bitbucket-devops-ui--pull-request-key
          'bitbucket-devops-pull-requests-ui-set-state-filter "s")
-        "State")
-       "\n"
-       (bitbucket-devops-ui--command-panel-back-cell 28)
+        "State" 18)
        (bitbucket-devops-ui--command-panel-cell
         (bitbucket-devops-ui--pull-request-key
          'bitbucket-devops-pull-requests-ui-refresh-current "C-c g")
-        "Refresh" 28)
-       (bitbucket-devops-ui--command-panel-cell
-        (bitbucket-devops-ui--pull-request-key
-         'bitbucket-devops-pull-requests-ui-set-branch-filter "f")
-        "Branch")
+        "Refresh")
        "\n"
        (bitbucket-devops-ui--command-panel-cell
         (bitbucket-devops-ui--pull-request-key
-         'bitbucket-devops-ui-quit "q")
-        "Quit" 28)
+         'bitbucket-devops-pull-requests-ui-browse "o")
+        "Browser" 28)
+       (bitbucket-devops-ui--command-panel-cell
+        (bitbucket-devops-ui--pull-request-command-keys
+         'bitbucket-devops-pull-requests-ui-run-pipeline "P")
+        "Run pipeline" 38)
+       (bitbucket-devops-ui--command-panel-cell
+        (bitbucket-devops-ui--pull-request-key
+         'bitbucket-devops-pull-requests-ui-set-branch-filter "f")
+        "Branch" 18)
        (bitbucket-devops-ui--command-panel-cell
         (bitbucket-devops-ui--pull-request-key
          'bitbucket-devops-pull-requests-ui-load-more "n")
-        "More" 28)
-       (bitbucket-devops-ui--command-panel-cell
-        (bitbucket-devops-ui--pull-request-key
-         'bitbucket-devops-pull-requests-ui-set-author-filter "a")
-        "Author")
+        "More")
        "\n"
        (bitbucket-devops-ui--command-panel-cell
         (bitbucket-devops-ui--pull-request-key
@@ -944,25 +974,27 @@ Use FALLBACK when no configured key is available."
         "Copy browser link" 28)
        (bitbucket-devops-ui--command-panel-cell
         (bitbucket-devops-ui--pull-request-command-keys
-         'bitbucket-devops-pull-requests-ui-run-pipeline "P")
-        "Run pipeline" 28)
-       (bitbucket-devops-ui--command-panel-cell
-        (bitbucket-devops-ui--pull-request-key
-         'bitbucket-devops-pull-requests-ui-browse "o")
-        "Browser")
-       "\n"
-       (bitbucket-devops-ui--command-panel-cell
-        (bitbucket-devops-ui--pull-request-key
-         'bitbucket-devops-pull-requests-ui-checkout-source-branch "C-c b")
-        "Checkout branch" 28)
-       (bitbucket-devops-ui--command-panel-cell
-        (bitbucket-devops-ui--pull-request-command-keys
          'bitbucket-devops-pull-requests-ui-toggle-comment-watch "C-c w")
-        "Watch comments" 28)
+        "Watch comments" 38)
+       (bitbucket-devops-ui--command-panel-cell
+        (bitbucket-devops-ui--pull-request-key
+         'bitbucket-devops-pull-requests-ui-set-author-filter "a")
+        "Author" 18)
        (bitbucket-devops-ui--command-panel-cell
         (bitbucket-devops-ui--pull-request-key
          'bitbucket-devops-ui-show-command-panel "?")
         "Help")
+       "\n"
+       (bitbucket-devops-ui--command-panel-back-cell 28)
+       (bitbucket-devops-ui--command-panel-cell
+        (bitbucket-devops-ui--pull-request-key
+         'bitbucket-devops-pull-requests-ui-checkout-source-branch "C-c b")
+        "Checkout branch" 38)
+       (bitbucket-devops-ui--command-panel-cell "" "" 18)
+       (bitbucket-devops-ui--command-panel-cell
+        (bitbucket-devops-ui--pull-request-key
+         'bitbucket-devops-ui-quit "q")
+        "Quit")
        "\n"))
      ((derived-mode-p 'bitbucket-devops-pull-requests-detail-mode)
       (concat
@@ -1659,7 +1691,8 @@ messages and authors.  Fetch each missing unique commit once and cache it."
   (not (bitbucket-devops-ui--pipeline-terminal-p pipeline)))
 
 (defun bitbucket-devops-ui--pipeline-sync-candidates (pipelines)
-  "Return pipelines selected for detail revalidation."
+  "Return pipelines selected for detail revalidation.
+PIPELINES is the list of pipelines to select from."
   (let* ((sorted (bitbucket-devops-cache--sort-pipelines pipelines))
          (always-count
           (bitbucket-devops-ui--sync-count
@@ -1994,6 +2027,81 @@ non-nil."
           (plist-get context :repo-slug)
           pipeline-uuid))
 
+(defun bitbucket-devops-ui--browser-url-segment (value)
+  "Return VALUE encoded for a Bitbucket browser URL path segment."
+  (url-hexify-string (format "%s" (or value ""))))
+
+(defun bitbucket-devops-ui--repository-pipelines-url (context)
+  "Return the Bitbucket browser URL for CONTEXT's pipeline list."
+  (unless context
+    (user-error "This buffer has no Bitbucket pipeline context"))
+  (format
+   "https://bitbucket.org/%s/%s/pipelines/"
+   (bitbucket-devops-ui--browser-url-segment
+    (plist-get context :workspace))
+   (bitbucket-devops-ui--browser-url-segment
+    (plist-get context :repo-slug))))
+
+(defun bitbucket-devops-ui--pipeline-html-url (pipeline)
+  "Return PIPELINE's API-provided browser URL, or nil."
+  (when-let ((url
+              (bitbucket-devops-ui--nested-get
+               pipeline
+               'links
+               'html
+               'href)))
+    (when (and (stringp url)
+               (string-match-p "\\`https?://" url))
+      url)))
+
+(defun bitbucket-devops-ui--pipeline-browser-url (context pipeline)
+  "Return the Bitbucket browser URL for PIPELINE in CONTEXT."
+  (or (bitbucket-devops-ui--pipeline-html-url pipeline)
+      (when-let ((build-number (alist-get 'build_number pipeline)))
+        (format
+         "%sresults/%s"
+         (bitbucket-devops-ui--repository-pipelines-url context)
+         (bitbucket-devops-ui--browser-url-segment build-number)))
+      (user-error "Selected Bitbucket pipeline has no browser URL")))
+
+(defun bitbucket-devops-ui--selected-history-pipeline ()
+  "Return the pipeline selected in the current history buffer, or nil."
+  (when-let ((pipeline-uuid (tabulated-list-get-id)))
+    (or (bitbucket-devops-ui--find-by-uuid
+         pipeline-uuid
+         bitbucket-devops-ui--history-pipelines)
+        (user-error "Selected Bitbucket pipeline is not loaded"))))
+
+(defun bitbucket-devops-ui--current-pipeline-browser-url ()
+  "Return the browser URL represented by the current pipeline buffer."
+  (unless bitbucket-devops-ui--context
+    (user-error "This buffer has no Bitbucket pipeline context"))
+  (cond
+   ((derived-mode-p 'bitbucket-devops-pipelines-history-mode)
+    (if-let ((pipeline (bitbucket-devops-ui--selected-history-pipeline)))
+        (bitbucket-devops-ui--pipeline-browser-url
+         bitbucket-devops-ui--context
+         pipeline)
+      (bitbucket-devops-ui--repository-pipelines-url
+       bitbucket-devops-ui--context)))
+   ((derived-mode-p 'bitbucket-devops-pipelines-details-mode)
+    (unless bitbucket-devops-ui--details-pipeline
+      (user-error "Bitbucket pipeline details are still loading"))
+    (bitbucket-devops-ui--pipeline-browser-url
+     bitbucket-devops-ui--context
+     bitbucket-devops-ui--details-pipeline))
+   (t
+    (user-error
+     "This command requires a Bitbucket pipeline history or details buffer"))))
+
+(defun bitbucket-devops-ui--browse-or-copy-url (url copy)
+  "Open URL in the configured browser, or copy it when COPY is non-nil."
+  (if copy
+      (progn
+        (kill-new url)
+        (message "Copied Bitbucket URL: %s" url))
+    (browse-url url)))
+
 (defun bitbucket-devops-ui--sanitize-name (name)
   "Return NAME made suitable for predictable buffer and file names."
   (string-trim
@@ -2215,7 +2323,8 @@ loading.  CALLBACK receives the complete step list and an error plist."
 
 (defun bitbucket-devops-ui--details-request-steps
     (&optional next-url generation)
-  "Request current pipeline step records asynchronously from NEXT-URL."
+  "Request current pipeline step records asynchronously from NEXT-URL.
+GENERATION guards against stale asynchronous responses."
   (let ((buffer (current-buffer))
         (generation
          (or generation bitbucket-devops-ui--details-generation)))
@@ -2233,7 +2342,8 @@ loading.  CALLBACK receives the complete step list and an error plist."
 
 (defun bitbucket-devops-ui--details-receive-steps
     (page request-error &optional generation)
-  "Render a step PAGE or REQUEST-ERROR in the current details buffer."
+  "Render a step PAGE or REQUEST-ERROR in the current details buffer.
+GENERATION guards against stale asynchronous responses."
   (let ((generation
          (or generation bitbucket-devops-ui--details-generation)))
     (when (= generation bitbucket-devops-ui--details-generation)
@@ -2254,7 +2364,8 @@ loading.  CALLBACK receives the complete step list and an error plist."
 
 (defun bitbucket-devops-ui--details-receive-pipeline
     (pipeline request-error generation)
-  "Render PIPELINE or REQUEST-ERROR in the current details buffer."
+  "Render PIPELINE or REQUEST-ERROR in the current details buffer.
+GENERATION guards against stale asynchronous responses."
   (when (= generation bitbucket-devops-ui--details-generation)
     (if request-error
         (progn
@@ -2319,16 +2430,20 @@ loading.  CALLBACK receives the complete step list and an error plist."
       (user-error "No Bitbucket pipeline is selected"))
     (bitbucket-devops-pipelines-details bitbucket-devops-ui--context pipeline-uuid)))
 
-(defun bitbucket-devops-pipelines-history-run-configured ()
-  "Prompt for and trigger a configured pipeline from a history buffer."
-  (interactive)
+(defun bitbucket-devops-pipelines-history-run-configured (&optional additional)
+  "Prompt for and trigger a configured pipeline from a history buffer.
+
+With a prefix argument, or when ADDITIONAL is non-nil, also prompt for
+free-form runtime variables that `bitbucket-pipelines.yml' does not declare."
+  (interactive "P")
   (unless bitbucket-devops-ui--context
     (user-error "This buffer has no Bitbucket pipeline context"))
   (unless (fboundp 'bitbucket-devops-pipelines-run-configured)
     (require 'bitbucket-devops-pipelines-mutate))
   (bitbucket-devops-pipelines-run-configured
    (or (plist-get bitbucket-devops-ui--context :root)
-       default-directory)))
+       default-directory)
+   additional))
 
 (defun bitbucket-devops-pipelines-watch-selected ()
   "Watch the selected pipeline from a history or details buffer."
@@ -2345,6 +2460,40 @@ loading.  CALLBACK receives the complete step list and an error plist."
     (bitbucket-devops-pipelines-watch-pipeline
      bitbucket-devops-ui--context
      pipeline-uuid)))
+
+(defun bitbucket-devops-pipelines-browse (&optional copy)
+  "Open the current Bitbucket pipeline in a browser.
+
+In a history buffer, open the selected pipeline when point is on a row.  When
+point is not on a row, open the repository Pipelines page.  In a details buffer,
+open the displayed pipeline.  With prefix argument COPY, copy the URL instead."
+  (interactive "P")
+  (bitbucket-devops-ui--browse-or-copy-url
+   (bitbucket-devops-ui--current-pipeline-browser-url)
+   copy))
+
+(defun bitbucket-devops-pipelines-browse-repository (&optional copy)
+  "Open the repository Pipelines page in a browser.
+
+With prefix argument COPY, copy the URL instead."
+  (interactive "P")
+  (bitbucket-devops-ui--browse-or-copy-url
+   (bitbucket-devops-ui--repository-pipelines-url
+    bitbucket-devops-ui--context)
+   copy))
+
+(defun bitbucket-devops-pipelines-copy-browser-url-at-point
+    (&optional repository)
+  "Copy the current Bitbucket pipeline browser URL to the kill ring.
+
+With prefix argument REPOSITORY, copy the repository Pipelines page URL."
+  (interactive "P")
+  (bitbucket-devops-ui--browse-or-copy-url
+   (if repository
+       (bitbucket-devops-ui--repository-pipelines-url
+        bitbucket-devops-ui--context)
+     (bitbucket-devops-ui--current-pipeline-browser-url))
+   t))
 
 ;;;###autoload
 (defun bitbucket-devops-pipelines-details (context pipeline-uuid)
@@ -2515,6 +2664,14 @@ loading.  CALLBACK receives the complete step list and an error plist."
             #'bitbucket-devops-pipelines-history-set-status-filter)
 (define-key bitbucket-devops-pipelines-history-mode-map (kbd "RET")
             #'bitbucket-devops-pipelines-history-view-details)
+(define-key bitbucket-devops-pipelines-history-mode-map (kbd "S-RET")
+            #'bitbucket-devops-pipelines-copy-browser-url-at-point)
+(define-key bitbucket-devops-pipelines-history-mode-map (kbd "S-<return>")
+            #'bitbucket-devops-pipelines-copy-browser-url-at-point)
+(define-key bitbucket-devops-pipelines-history-mode-map (kbd "o")
+            #'bitbucket-devops-pipelines-browse)
+(define-key bitbucket-devops-pipelines-history-mode-map (kbd "O")
+            #'bitbucket-devops-pipelines-browse-repository)
 (define-key bitbucket-devops-pipelines-history-mode-map (kbd "t")
             #'bitbucket-devops-pipelines-watch-selected)
 (define-key bitbucket-devops-pipelines-history-mode-map (kbd "d")
@@ -2533,6 +2690,14 @@ loading.  CALLBACK receives the complete step list and an error plist."
             #'bitbucket-devops-pipelines-details-refresh)
 (define-key bitbucket-devops-pipelines-details-mode-map (kbd "RET")
             #'bitbucket-devops-pipelines-view-step-log)
+(define-key bitbucket-devops-pipelines-details-mode-map (kbd "S-RET")
+            #'bitbucket-devops-pipelines-copy-browser-url-at-point)
+(define-key bitbucket-devops-pipelines-details-mode-map (kbd "S-<return>")
+            #'bitbucket-devops-pipelines-copy-browser-url-at-point)
+(define-key bitbucket-devops-pipelines-details-mode-map (kbd "o")
+            #'bitbucket-devops-pipelines-browse)
+(define-key bitbucket-devops-pipelines-details-mode-map (kbd "O")
+            #'bitbucket-devops-pipelines-browse-repository)
 (define-key bitbucket-devops-pipelines-details-mode-map (kbd "d")
             #'bitbucket-devops-pipelines-download-selected-log)
 (define-key bitbucket-devops-pipelines-details-mode-map (kbd "D")
@@ -2568,6 +2733,10 @@ loading.  CALLBACK receives the complete step list and an error plist."
    (kbd "f") #'bitbucket-devops-pipelines-history-set-branch-filter
    (kbd "s") #'bitbucket-devops-pipelines-history-set-status-filter
    (kbd "RET") #'bitbucket-devops-pipelines-history-view-details
+   (kbd "S-RET") #'bitbucket-devops-pipelines-copy-browser-url-at-point
+   (kbd "S-<return>") #'bitbucket-devops-pipelines-copy-browser-url-at-point
+   (kbd "o") #'bitbucket-devops-pipelines-browse
+   (kbd "O") #'bitbucket-devops-pipelines-browse-repository
    (kbd "t") #'bitbucket-devops-pipelines-watch-selected
    (kbd "d") #'bitbucket-devops-pipelines-history-download-logs
    (kbd "R") #'bitbucket-devops-pipelines-history-run-configured
@@ -2580,6 +2749,10 @@ loading.  CALLBACK receives the complete step list and an error plist."
    bitbucket-devops-pipelines-details-mode-map
    (kbd "r") #'bitbucket-devops-pipelines-details-refresh
    (kbd "RET") #'bitbucket-devops-pipelines-view-step-log
+   (kbd "S-RET") #'bitbucket-devops-pipelines-copy-browser-url-at-point
+   (kbd "S-<return>") #'bitbucket-devops-pipelines-copy-browser-url-at-point
+   (kbd "o") #'bitbucket-devops-pipelines-browse
+   (kbd "O") #'bitbucket-devops-pipelines-browse-repository
    (kbd "d") #'bitbucket-devops-pipelines-download-selected-log
    (kbd "D") #'bitbucket-devops-pipelines-download-logs
    (kbd "t") #'bitbucket-devops-pipelines-watch-selected
@@ -2596,8 +2769,24 @@ loading.  CALLBACK receives the complete step list and an error plist."
    (kbd "q") #'bitbucket-devops-ui-quit
    (kbd "?") #'bitbucket-devops-ui-show-command-panel))
 
-(with-eval-after-load 'evil
-  (bitbucket-devops-ui--install-evil-bindings))
+(defvar bitbucket-devops-ui--evil-bindings-installed nil
+  "Non-nil once Evil bindings for Pipelines buffers have been installed.")
+
+(defun bitbucket-devops-ui-install-evil-bindings ()
+  "Install Evil bindings for Pipelines buffers when Evil is loaded.
+
+Does nothing when Evil is absent, and installs at most once.  This runs
+from the Pipelines major modes rather than at load time, so Evil only has
+to be loaded by the time the first Pipelines buffer is opened."
+  (when (and (featurep 'evil)
+             (not bitbucket-devops-ui--evil-bindings-installed))
+    (setq bitbucket-devops-ui--evil-bindings-installed t)
+    (bitbucket-devops-ui--install-evil-bindings)))
+
+(dolist (hook '(bitbucket-devops-pipelines-history-mode-hook
+                bitbucket-devops-pipelines-details-mode-hook
+                bitbucket-devops-pipelines-log-mode-hook))
+  (add-hook hook #'bitbucket-devops-ui-install-evil-bindings))
 
 (provide 'bitbucket-devops-ui)
 ;;; bitbucket-devops-ui.el ends here

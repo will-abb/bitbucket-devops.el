@@ -381,6 +381,9 @@ are complete. Pipeline list responses contain abbreviated commit records, so
 the UI fetches and caches each unique commit record needed to display its
 author and message. A history-buffer command downloads every available
 completed step log for the selected pipeline without first opening details.
+History and details buffers can open or copy Bitbucket browser URLs for the
+selected or displayed pipeline. The history and details buffers can also open
+or copy the repository Pipelines page URL.
 The history UI fetches deployment records filtered by pipeline UUID and caches
 them for terminal runs. History displays their environment names as a stable
 comma-separated summary in execution order. Pipeline details display the
@@ -447,7 +450,7 @@ completed step logs for a selected pipeline.
 - Copy the saved path, or newline-separated saved paths for a bundle download,
   to the kill ring when logs are written successfully.
 - `bitbucket-devops-pipelines-auto-download-logs` defaults to nil. When enabled, the
-  tracker downloads logs after a tracked pipeline reaches a terminal state.
+  watcher downloads logs after a watched pipeline reaches a terminal state.
 - Viewing a log in Emacs and downloading logs to files are separate commands.
 
 ## 9. Watcher
@@ -463,9 +466,10 @@ The watcher monitors pipeline state, not logs.
 - `bitbucket-devops-pipelines-backoff-maximum-delay` defaults to 120 seconds.
 - `bitbucket-devops-pipelines-backoff-maximum-retries` defaults to 5.
 - `bitbucket-devops-pipelines-watch-mode-line-enabled` defaults to t. When nil,
-  active trackers do not add the `BB[n]` mode-line entry.
-- `bitbucket-devops-pipelines-watch-list-column-widths` controls the active tracker
-  list's repository, branch, commit, state, and result column widths.
+  active pipeline watchers do not add the `BB[n]` mode-line entry.
+- `bitbucket-devops-pipelines-watch-list-column-widths` controls the active watcher
+  list's type, repository, target, state, age, poll, next-behavior, and status
+  column widths.
 - `bitbucket-devops-pipelines-notification-function` defaults to nil. When nil, load
   and use optional `alert.el` when it is installed, then try built-in desktop
   notifications in graphical Emacs, and fall back to `message` otherwise.
@@ -482,9 +486,9 @@ The watcher monitors pipeline state, not logs.
   persistently tracks newly discovered pipelines on that branch.
 - `bitbucket-devops-pipelines-watch-repository-current` persistently tracks newly
   discovered pipelines anywhere in the current repository.
-- Branch and repository trackers establish a quiet baseline for completed
+- Branch and repository pipeline watchers establish a quiet baseline for completed
   historical runs on their first poll, attach to active runs immediately, and
-  start ordinary run trackers for later unseen matching pipelines.
+  start ordinary run watchers for later unseen matching pipelines.
 - A successful `bitbucket-devops-pipelines-run-configured` or
   `bitbucket-devops-pipelines-rerun` command starts tracking the returned
   pipeline UUID immediately.
@@ -509,7 +513,7 @@ The watcher monitors pipeline state, not logs.
 - The default hook function is `bitbucket-devops-pipelines-watch-commit`. Users may
   add hook functions for additional post-push behavior or remove the default
   function when they want to replace automatic tracking.
-- `bitbucket-devops-pipelines-auto-download-logs` applies normally to a tracker started
+- `bitbucket-devops-pipelines-auto-download-logs` applies normally to a watcher started
   after a Magit push.
 
 ### Lifecycle
@@ -519,7 +523,7 @@ The watcher monitors pipeline state, not logs.
 - Poll branch and repository subscriptions until the user stops them explicitly
   or retry handling stops them after repeated failures.
 - Cancel timers when a tracked run reaches a terminal state.
-- Allow the user to stop tracking a run, branch, or repository explicitly.
+- Allow the user to stop watching a run, branch, or repository explicitly.
 - Deduplicate notifications so the same observed state is announced once.
 - Treat Bitbucket's in-progress `PAUSED` or `HALTED` result as a visible state,
   notify when a run enters it, and continue polling until terminal completion.
@@ -534,11 +538,33 @@ The watcher monitors pipeline state, not logs.
   by repository subscription.
 - Support simultaneous active watchers for different repositories.
 - Display an aggregate active watcher count in the mode line.
-- Provide a command that lists active trackers and their latest known states.
-  The same list shows whether Magit push tracking is enabled and lets the user
-  toggle it without returning to the dispatch menu.
+- Provide a command that lists active pipeline watchers and PR comment watchers
+  with their type, repository, target, state, age/timeout, poll interval, next
+  behavior, and active/error status. The same list shows whether Magit push
+  tracking is enabled and lets the user toggle it without returning to the
+  dispatch menu.
 - Remove terminal run watchers from the active list and display an explanatory
   empty state when no watchers remain.
+
+### Pull Request Comment Watchers
+
+- Pull request comment watchers poll comments only while the pull request is
+  `OPEN`.
+- Before each comment poll, fetch the current pull request state. Treat
+  `MERGED`, `DECLINED`, `SUPERSEDED`, and any other non-`OPEN` state returned by
+  Bitbucket as terminal for comment watching.
+- When a watched pull request reaches a terminal state, cancel the timer, remove
+  the watcher record, update the mode line, and notify that watching stopped.
+- The first successful comment poll records existing remote comments and replies
+  as a quiet baseline. Later unseen, non-deleted comments notify.
+- `bitbucket-devops-pull-requests-comments-watch-max-age` defaults to nil. When
+  set to seconds, stop a comment watcher once its lifetime reaches that value.
+- Store each comment watcher's start time and show age/timeout in the unified
+  watcher list.
+- `bitbucket-devops-pull-requests-auto-watch-created` defaults to nil. When
+  non-nil, successful pull request creation prompts "Watch comments for pull
+  request #N?"; the prompt defaults to yes and starts watching only when the
+  user accepts.
 
 ## 10. Mutations
 
@@ -569,8 +595,22 @@ the source branch as the target branch for branch-name checks, and rely on
 parsed deployment metadata for deployment-name checks.
 
 For each custom variable, prompt for its value. Use YAML defaults and allowed
-values when declared. Allow additional free-form key and value pairs. Do not
-include variable values in messages, error text, or debug output.
+values when declared. Do not include variable values in messages, error text,
+or debug output.
+
+Prompt only for declared variables by default. Allow additional free-form key
+and value pairs when the command receives a prefix argument, so the common path
+ends after the declared prompts and undeclared variables stay reachable without
+a separate command. Apply the same prefix argument to reruns, where the
+declared set is the variable keys remembered from the last trigger.
+
+Runtime variables are sent unsecured. The trigger request carries only each
+variable's key and value, never Bitbucket's `secured` flag, so Bitbucket stores
+the values as plain text on the pipeline run and does not mask them in its log
+output. The package deliberately does not prompt for a secured flag or read
+values with `read-passwd`. Secrets belong in Bitbucket's own secured
+repository, deployment, or workspace variables, not in a runtime variable
+prompt.
 
 `bitbucket-devops-pipelines-yaml-file-name` defaults to `bitbucket-pipelines.yml` and
 controls the local file parsed by configured trigger commands.
@@ -589,7 +629,9 @@ controls the local file parsed by configured trigger commands.
 ### Rerun
 
 `bitbucket-devops-pipelines-rerun` creates a new pipeline run using the selected prior
-pipeline's target. When applicable, the user may supply a custom selector.
+pipeline's target. When applicable, the user may supply a custom selector. With
+a prefix argument, it also prompts for free-form runtime variables beyond the
+remembered keys.
 
 The package does not promise a server-side retry operation and does not retry an
 individual step.
@@ -680,12 +722,15 @@ summaries. Description and comments render Markdown-oriented text, and
 recognized emoji shortcodes display as Unicode glyphs when
 `bitbucket-devops-pull-requests-display-emoji-shortcodes` is non-nil. Editing
 comments or descriptions must preserve and send the original Markdown text.
+Rendered comment headers include the commenter and local creation timestamp.
 
 The Checks section lists each build status with state, provider, description,
 and link. `bitbucket-devops-pull-requests-build-status-action` controls whether
 `RET` opens a browser URL or matching local Bitbucket Pipelines details by
-default. A prefix argument runs the other action for one invocation. `S-RET`
-copies the URL at point instead of opening it.
+default. Local opening applies only to statuses that identify Bitbucket
+Pipelines; external provider links such as Terraform Cloud open in the browser.
+A prefix argument runs the other action for one invocation when both actions are
+available. `S-RET` copies the URL at point instead of opening it.
 
 Diff viewing supports three backends:
 
@@ -771,11 +816,11 @@ a  Toggle automatic log downloads for completed tracked pipelines
 l  List pull requests
 c  Create a pull request
 R  Refresh cached custom reviewer candidates
-m  Toggle automatic tracking after successful Magit pushes
-b  Track new pipelines on a branch
-o  Track new pipelines in the current repository
-t  List active trackers
-x  Stop an active tracker
+m  Toggle automatic pipeline watching after successful Magit pushes
+b  Watch new pipelines on a branch
+o  Watch new pipelines in the current repository
+t  List active watchers
+x  Stop an active pipeline watcher
 q  Quit dispatch
 ```
 
@@ -794,6 +839,9 @@ n    Load next history page
 f    Filter loaded history by branch
 s    Filter loaded history by status
 RET  Open pipeline details
+S-RET Copy browser URL
+o    Open selected pipeline in browser
+O    Open repository Pipelines page in browser
 t    Track selected pipeline
 d    Download selected pipeline logs
 R    Run configured pipeline
@@ -805,6 +853,9 @@ q    Quit package UI
 Pipeline Details:
 r    Refresh displayed pipeline
 RET  View selected completed step log
+S-RET Copy browser URL
+o    Open displayed pipeline in browser
+O    Open repository Pipelines page in browser
 d    Download selected completed step log
 D    Download displayed pipeline logs
 t    Track displayed pipeline
@@ -823,7 +874,10 @@ f         Filter loaded pull requests by branch
 a         Filter loaded pull requests by author
 RET       Open pull request details
 S-RET     Copy browser URL
-b         Checkout source branch
+C-c b     Checkout source branch
+t         Watch comments on selected pull request
+C-c w     Watch comments on selected pull request
+C-c C-w   Watch comments on selected pull request
 o         Open browser URL
 c         Create a pull request
 ?         Toggle command panel
@@ -986,7 +1040,8 @@ The package contract is satisfied when all of the following are true:
     views for a pull request.
 17. A user can open or copy pull request and build-status browser links, and can
     make build-status `RET` open either the browser URL or matching local
-    pipeline details according to configuration.
+    Bitbucket Pipelines details according to configuration. External provider
+    status links remain browser-only.
 18. A user can create a pull request, compose or edit Markdown descriptions,
     manage draft state, add or remove reviewers, apply effective default
     reviewers, approve, request changes, comment, reply, comment inline, manage

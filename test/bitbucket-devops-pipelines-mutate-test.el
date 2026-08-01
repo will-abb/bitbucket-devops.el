@@ -8,6 +8,21 @@
 (require 'cl-lib)
 (require 'bitbucket-devops-pipelines-mutate)
 
+(defmacro bitbucket-devops-pipelines-mutate-test--with-step-at-point
+    (step-uuid &rest body)
+  "Evaluate BODY at a position whose tabulated list ID is STEP-UUID.
+
+`tabulated-list-get-id' is a `defsubst', so byte-compiled callers inline
+it and a `cl-letf' stub never takes effect.  Setting the underlying
+`tabulated-list-id' text property exercises the same code path in both
+interpreted and byte-compiled builds."
+  (declare (indent 1) (debug (form body)))
+  `(with-temp-buffer
+     (insert "step\n")
+     (put-text-property (point-min) (point-max) 'tabulated-list-id ,step-uuid)
+     (goto-char (point-min))
+     ,@body))
+
 (ert-deftest bitbucket-devops-pipelines-mutate-branch-body-builds-default-target ()
   (should
    (equal
@@ -212,29 +227,28 @@
             (state . ((name . "PENDING"))))))
         observed
         watcher)
-    (cl-letf (((symbol-function 'tabulated-list-get-id)
-               (lambda () "{step-2}"))
-              ((symbol-function 'y-or-n-p)
-               (lambda (&rest _args) t))
-              ((symbol-function 'bitbucket-devops-rest-start-step)
-               (lambda (&rest args)
-                 (setq observed args)
-                 (funcall (nth 3 args) nil nil)))
-              ((symbol-function 'bitbucket-devops-pipelines-watch-pipeline)
-               (lambda (context pipeline-uuid)
-                 (setq watcher (list context pipeline-uuid)))))
-      (bitbucket-devops-pipelines-continue)
-      (should
-       (equal
-        (butlast observed)
-        '((:workspace "williseed1" :repo-slug "test")
-          "{pipeline-12}"
-          "{step-2}")))
-      (should
-       (equal
-        watcher
-        '((:workspace "williseed1" :repo-slug "test")
-          "{pipeline-12}"))))))
+    (bitbucket-devops-pipelines-mutate-test--with-step-at-point "{step-2}"
+      (cl-letf (((symbol-function 'y-or-n-p)
+                 (lambda (&rest _args) t))
+                ((symbol-function 'bitbucket-devops-rest-start-step)
+                 (lambda (&rest args)
+                   (setq observed args)
+                   (funcall (nth 3 args) nil nil)))
+                ((symbol-function 'bitbucket-devops-pipelines-watch-pipeline)
+                 (lambda (context pipeline-uuid)
+                   (setq watcher (list context pipeline-uuid)))))
+        (bitbucket-devops-pipelines-continue)
+        (should
+         (equal
+          (butlast observed)
+          '((:workspace "williseed1" :repo-slug "test")
+            "{pipeline-12}"
+            "{step-2}")))
+        (should
+         (equal
+          watcher
+          '((:workspace "williseed1" :repo-slug "test")
+            "{pipeline-12}")))))))
 
 (ert-deftest bitbucket-devops-pipelines-mutate-continue-finds-single-pending-step ()
   (let ((bitbucket-devops-ui--context
@@ -253,23 +267,22 @@
             (name . "Blue/Green: DEV Approve")
             (state . ((name . "PENDING"))))))
         observed)
-    (cl-letf (((symbol-function 'tabulated-list-get-id)
-               (lambda () "{step-1}"))
-              ((symbol-function 'y-or-n-p)
-               (lambda (&rest _args) t))
-              ((symbol-function 'bitbucket-devops-rest-start-step)
-               (lambda (&rest args)
-                 (setq observed args)
-                 (funcall (nth 3 args) nil nil)))
-              ((symbol-function 'bitbucket-devops-pipelines-watch-pipeline)
-               #'ignore))
-      (bitbucket-devops-pipelines-continue)
-      (should
-       (equal
-        (butlast observed)
-        '((:workspace "williseed1" :repo-slug "test")
-          "{pipeline-12}"
-          "{step-2}"))))))
+    (bitbucket-devops-pipelines-mutate-test--with-step-at-point "{step-1}"
+      (cl-letf (((symbol-function 'y-or-n-p)
+                 (lambda (&rest _args) t))
+                ((symbol-function 'bitbucket-devops-rest-start-step)
+                 (lambda (&rest args)
+                   (setq observed args)
+                   (funcall (nth 3 args) nil nil)))
+                ((symbol-function 'bitbucket-devops-pipelines-watch-pipeline)
+                 #'ignore))
+        (bitbucket-devops-pipelines-continue)
+        (should
+         (equal
+          (butlast observed)
+          '((:workspace "williseed1" :repo-slug "test")
+            "{pipeline-12}"
+            "{step-2}")))))))
 
 (ert-deftest bitbucket-devops-pipelines-mutate-continue-rejects-non-paused-pipeline ()
   (let ((bitbucket-devops-ui--context
@@ -283,22 +296,21 @@
             (name . "Approve")
             (state . ((name . "PENDING"))))))
         rest-called)
-    (cl-letf (((symbol-function 'tabulated-list-get-id)
-               (lambda () "{step-2}"))
-              ((symbol-function 'bitbucket-devops-rest-start-step)
-               (lambda (&rest _args) (setq rest-called t)))
-              ((symbol-function 'y-or-n-p)
-               (lambda (&rest _args)
-                 (ert-fail "Non-paused pipeline should not prompt"))))
-      (let ((error-data
-             (should-error
-              (bitbucket-devops-pipelines-continue)
-              :type 'user-error)))
-        (should
-         (string-match-p
-          "is not paused"
-          (error-message-string error-data))))
-      (should-not rest-called))))
+    (bitbucket-devops-pipelines-mutate-test--with-step-at-point "{step-2}"
+      (cl-letf (((symbol-function 'bitbucket-devops-rest-start-step)
+                 (lambda (&rest _args) (setq rest-called t)))
+                ((symbol-function 'y-or-n-p)
+                 (lambda (&rest _args)
+                   (ert-fail "Non-paused pipeline should not prompt"))))
+        (let ((error-data
+               (should-error
+                (bitbucket-devops-pipelines-continue)
+                :type 'user-error)))
+          (should
+           (string-match-p
+            "is not paused"
+            (error-message-string error-data))))
+        (should-not rest-called)))))
 
 (ert-deftest bitbucket-devops-pipelines-mutate-continue-rejects-completed-step ()
   (let ((bitbucket-devops-ui--context
@@ -314,22 +326,21 @@
             (state . ((name . "COMPLETED")
                       (result . ((name . "SUCCESSFUL"))))))))
         rest-called)
-    (cl-letf (((symbol-function 'tabulated-list-get-id)
-               (lambda () "{step-1}"))
-              ((symbol-function 'bitbucket-devops-rest-start-step)
-               (lambda (&rest _args) (setq rest-called t)))
-              ((symbol-function 'y-or-n-p)
-               (lambda (&rest _args)
-                 (ert-fail "Completed step should not prompt"))))
-      (let ((error-data
-             (should-error
-              (bitbucket-devops-pipelines-continue)
-              :type 'user-error)))
-        (should
-         (string-match-p
-          "is not pending"
-          (error-message-string error-data))))
-      (should-not rest-called))))
+    (bitbucket-devops-pipelines-mutate-test--with-step-at-point "{step-1}"
+      (cl-letf (((symbol-function 'bitbucket-devops-rest-start-step)
+                 (lambda (&rest _args) (setq rest-called t)))
+                ((symbol-function 'y-or-n-p)
+                 (lambda (&rest _args)
+                   (ert-fail "Completed step should not prompt"))))
+        (let ((error-data
+               (should-error
+                (bitbucket-devops-pipelines-continue)
+                :type 'user-error)))
+          (should
+           (string-match-p
+            "is not pending"
+            (error-message-string error-data))))
+        (should-not rest-called)))))
 
 (ert-deftest bitbucket-devops-pipelines-mutate-continue-explains-auth-mechanism-error ()
   (let ((message
@@ -730,10 +741,7 @@
        (equal
         (bitbucket-devops-pipelines-mutate--read-variables)
         nil))
-      (should
-       (equal
-        (nreverse prompts)
-        '(("Additional runtime variable key (empty for none): " nil)))))))
+      (should (equal (nreverse prompts) nil)))))
 
 (ert-deftest bitbucket-devops-pipelines-mutate-read-variables-reuses-remembered-metadata-when-requested ()
   (let ((bitbucket-devops-pipelines-remember-variable-values t)
@@ -753,7 +761,48 @@
       (should
        (equal
         (nreverse prompts)
-        '(("Value for variable PR_ID: " "2361")
+        '(("Value for variable PR_ID: " "2361")))))))
+
+(ert-deftest bitbucket-devops-pipelines-mutate-read-variables-skips-additional-by-default ()
+  (let (prompts)
+    (cl-letf (((symbol-function 'read-string)
+               (lambda (prompt &optional initial-input &rest _args)
+                 (push (list prompt initial-input) prompts)
+                 (if (string-prefix-p "Additional runtime variable" prompt)
+                     ""
+                   "value"))))
+      (should
+       (equal
+        (bitbucket-devops-pipelines-mutate--read-variables '((:key "PR_ID")))
+        '((:key "PR_ID" :value "value"))))
+      (should
+       (equal
+        (nreverse prompts)
+        '(("Value for variable PR_ID: " nil)))))))
+
+(ert-deftest bitbucket-devops-pipelines-mutate-read-variables-reads-additional-when-requested ()
+  (let (prompts)
+    (cl-letf (((symbol-function 'read-string)
+               (lambda (prompt &optional initial-input &rest _args)
+                 (push (list prompt initial-input) prompts)
+                 (cond
+                  ((not (string-prefix-p "Additional runtime variable" prompt))
+                   "value")
+                  ((= (length prompts) 2) "EXTRA")
+                  (t "")))))
+      (should
+       (equal
+        (bitbucket-devops-pipelines-mutate--read-variables
+         '((:key "PR_ID"))
+         nil
+         t)
+        '((:key "PR_ID" :value "value") (:key "EXTRA" :value "value"))))
+      (should
+       (equal
+        (nreverse prompts)
+        '(("Value for variable PR_ID: " nil)
+          ("Additional runtime variable key (empty for none): " nil)
+          ("Value for variable EXTRA: " nil)
           ("Additional runtime variable key (empty for none): " nil)))))))
 
 (ert-deftest bitbucket-devops-pipelines-mutate-parse-selectors-returns-nil-gracefully ()

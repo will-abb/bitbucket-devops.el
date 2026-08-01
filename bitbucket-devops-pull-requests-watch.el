@@ -1,9 +1,25 @@
 ;;; bitbucket-devops-pull-requests-watch.el --- Watch Bitbucket PR comments -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026
+;; Copyright (C) 2026 Will Bosch-Bello
 
 ;; Author: Will Bosch-Bello <williamsbosch@gmail.com>
+;; Assisted-by: Codex:gpt-5.5-codex
+;; Assisted-by: Claude:claude-opus-5
+;; Maintainer: Will Bosch-Bello <williamsbosch@gmail.com>
 ;; Keywords: tools, vc
+;; SPDX-License-Identifier: GPL-3.0-only
+
+;; This program is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License version 3 as
+;; published by the Free Software Foundation.
+;;
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+;;
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
@@ -19,6 +35,8 @@
 
 (declare-function alert "ext:alert" (message &rest args))
 (declare-function notifications-notify "notifications" (&rest params))
+(declare-function bitbucket-devops-pipelines-watch--render-list-buffer
+                  "bitbucket-devops-pipelines-watch")
 
 (defcustom bitbucket-devops-pull-requests-comments-poll-interval 60
   "Seconds between successful Bitbucket pull request comment watcher polls."
@@ -67,16 +85,33 @@ fall back to `message' otherwise."
   :type 'boolean
   :group 'bitbucket-devops-pull-requests)
 
+(defcustom bitbucket-devops-pull-requests-comments-watch-max-age nil
+  "Maximum lifetime in seconds for a pull request comment watcher.
+
+When nil, comment watchers run until the pull request reaches a terminal state,
+the user stops them, or retry handling removes them after repeated failures."
+  :type '(choice
+          (const :tag "No maximum lifetime" nil)
+          (number :tag "Seconds"))
+  :group 'bitbucket-devops-pull-requests)
+
+;; `:noinline' keeps `cl-defstruct' from generating a compiler macro per
+;; accessor.  Those carry an auto-built docstring that exceeds 80 columns
+;; whenever the accessor name is long, and it cannot be shortened from here.
 (cl-defstruct
     (bitbucket-devops-pull-requests-watch--record
      (:constructor bitbucket-devops-pull-requests-watch--make-record)
-     (:conc-name bitbucket-devops-pull-requests-watch--r-))
+     (:conc-name bitbucket-devops-pull-requests-watch--r-)
+     (:noinline t))
   key
   context
   pull-request-id
   title
+  state
+  started-at
   timer
   (failures 0)
+  last-error
   seen-comment-ids
   initialized)
 
@@ -100,6 +135,20 @@ fall back to `message' otherwise."
   "Return the number of active pull request comment watchers."
   (hash-table-count bitbucket-devops-pull-requests-watch--records))
 
+(defun bitbucket-devops-pull-requests-watch--sorted-records ()
+  "Return active pull request comment watcher records sorted by key."
+  (let (records)
+    (maphash
+     (lambda (_key record)
+       (push record records))
+     bitbucket-devops-pull-requests-watch--records)
+    (sort
+     records
+     (lambda (left right)
+       (string-lessp
+        (bitbucket-devops-pull-requests-watch--r-key left)
+        (bitbucket-devops-pull-requests-watch--r-key right))))))
+
 (defun bitbucket-devops-pull-requests-watch-mode-line-string ()
   "Return the aggregate pull request comment watcher mode-line text."
   (let ((count (bitbucket-devops-pull-requests-watch-active-count)))
@@ -122,7 +171,72 @@ fall back to `message' otherwise."
           (delq
            'bitbucket-devops-pull-requests-comments-watch-mode-line
            global-mode-string)))
+  (when (fboundp 'bitbucket-devops-pipelines-watch--render-list-buffer)
+    (bitbucket-devops-pipelines-watch--render-list-buffer))
   (force-mode-line-update t))
+
+(defun bitbucket-devops-pull-requests-watch--normalize-state (state)
+  "Return a normalized pull request STATE string, or nil."
+  (when state
+    (let ((value
+           (string-trim
+            (upcase
+             (if (stringp state)
+                 state
+               (format "%s" state))))))
+      (unless (string-empty-p value)
+        value))))
+
+(defun bitbucket-devops-pull-requests-watch--pull-request-state
+    (pull-request)
+  "Return PULL-REQUEST's normalized state, or nil."
+  (bitbucket-devops-pull-requests-watch--normalize-state
+   (alist-get 'state pull-request)))
+
+(defun bitbucket-devops-pull-requests-watch--terminal-state-p (state)
+  "Return non-nil when pull request STATE should stop comment watching."
+  (let ((state (bitbucket-devops-pull-requests-watch--normalize-state state)))
+    (and state (not (equal state "OPEN")))))
+
+(defun bitbucket-devops-pull-requests-watch--active-max-age ()
+  "Return the configured watcher maximum age, or nil."
+  (when (and (numberp bitbucket-devops-pull-requests-comments-watch-max-age)
+             (>= bitbucket-devops-pull-requests-comments-watch-max-age 0))
+    bitbucket-devops-pull-requests-comments-watch-max-age))
+
+(defun bitbucket-devops-pull-requests-watch--record-age (record)
+  "Return RECORD's lifetime in seconds."
+  (max 0 (- (float-time)
+            (or (bitbucket-devops-pull-requests-watch--r-started-at record)
+                (float-time)))))
+
+(defun bitbucket-devops-pull-requests-watch--expired-p (record)
+  "Return non-nil when RECORD has exceeded its configured lifetime."
+  (when-let ((max-age
+              (bitbucket-devops-pull-requests-watch--active-max-age)))
+    (>= (bitbucket-devops-pull-requests-watch--record-age record)
+        max-age)))
+
+(defun bitbucket-devops-pull-requests-watch--effective-delay (record delay)
+  "Return polling DELAY bounded by RECORD's remaining lifetime."
+  (if-let ((max-age
+            (bitbucket-devops-pull-requests-watch--active-max-age)))
+      (max
+       0
+       (min delay
+            (- max-age
+               (bitbucket-devops-pull-requests-watch--record-age record))))
+    delay))
+
+(defun bitbucket-devops-pull-requests-watch--stop-expired (key record)
+  "Stop RECORD identified by KEY when it has exceeded its lifetime."
+  (when (bitbucket-devops-pull-requests-watch--expired-p record)
+    (bitbucket-devops-pull-requests-watch--notify
+     (format
+      "Stopped watching PR #%s comments: watcher expired."
+      (bitbucket-devops-pull-requests-watch--r-pull-request-id record)))
+    (bitbucket-devops-pull-requests-watch--remove key)
+    t))
 
 (defun bitbucket-devops-pull-requests-watch--cancel-timer (record)
   "Cancel RECORD's timer when present."
@@ -143,7 +257,7 @@ fall back to `message' otherwise."
   (setf
    (bitbucket-devops-pull-requests-watch--r-timer record)
    (run-at-time
-    delay
+    (bitbucket-devops-pull-requests-watch--effective-delay record delay)
     nil
     (lambda (key)
       (when-let ((current
@@ -259,28 +373,64 @@ fall back to `message' otherwise."
     (key request-error)
   "Handle REQUEST-ERROR for watcher KEY."
   (when-let ((record (gethash key bitbucket-devops-pull-requests-watch--records)))
+    (setf (bitbucket-devops-pull-requests-watch--r-last-error record)
+          (or (plist-get request-error :message) "request failed"))
     (if (bitbucket-devops-pull-requests-watch--transient-error-p request-error)
         (let ((failures
                (1+ (bitbucket-devops-pull-requests-watch--r-failures record))))
           (setf (bitbucket-devops-pull-requests-watch--r-failures record)
                 failures)
-          (if (> failures
-                 bitbucket-devops-pull-requests-comments-backoff-maximum-retries)
-              (progn
-                (bitbucket-devops-pull-requests-watch--notify
-                 (format
-                  "Bitbucket PR comment watcher %s stopped after repeated failures; refresh manually"
-                  (bitbucket-devops-pull-requests-watch--describe-record record)))
-                (bitbucket-devops-pull-requests-watch--remove key))
+          (bitbucket-devops-pull-requests-watch--update-mode-line)
+          (cond
+           ((bitbucket-devops-pull-requests-watch--stop-expired key record)
+            nil)
+           ((> failures
+               bitbucket-devops-pull-requests-comments-backoff-maximum-retries)
+            (bitbucket-devops-pull-requests-watch--notify
+             (format
+              "Bitbucket PR comment watcher %s stopped after repeated failures; refresh manually"
+              (bitbucket-devops-pull-requests-watch--describe-record record)))
+            (bitbucket-devops-pull-requests-watch--remove key))
+           (t
             (bitbucket-devops-pull-requests-watch--schedule
              record
-             (bitbucket-devops-pull-requests-watch--retry-delay failures))))
+             (bitbucket-devops-pull-requests-watch--retry-delay failures)))))
       (bitbucket-devops-pull-requests-watch--notify
        (format
         "Bitbucket PR comment watcher %s stopped: %s"
         (bitbucket-devops-pull-requests-watch--describe-record record)
         (or (plist-get request-error :message) "request failed")))
       (bitbucket-devops-pull-requests-watch--remove key))))
+
+(defun bitbucket-devops-pull-requests-watch--receive-pull-request
+    (key pull-request request-error)
+  "Handle PULL-REQUEST details or REQUEST-ERROR for watcher KEY."
+  (if request-error
+      (bitbucket-devops-pull-requests-watch--handle-error key request-error)
+    (when-let ((record (gethash key bitbucket-devops-pull-requests-watch--records)))
+      (when-let ((state
+                  (bitbucket-devops-pull-requests-watch--pull-request-state
+                   pull-request)))
+        (setf (bitbucket-devops-pull-requests-watch--r-state record) state))
+      (when-let ((title (alist-get 'title pull-request)))
+        (setf (bitbucket-devops-pull-requests-watch--r-title record) title))
+      (bitbucket-devops-pull-requests-watch--update-mode-line)
+      (let ((state (bitbucket-devops-pull-requests-watch--r-state record)))
+        (cond
+         ((bitbucket-devops-pull-requests-watch--terminal-state-p state)
+          (progn
+            (bitbucket-devops-pull-requests-watch--notify
+             (format
+              "Stopped watching PR #%s comments: PR is %s."
+              (bitbucket-devops-pull-requests-watch--r-pull-request-id record)
+              state))
+            (bitbucket-devops-pull-requests-watch--remove key)))
+         ((bitbucket-devops-pull-requests-watch--stop-expired key record)
+          nil)
+         (t
+          (bitbucket-devops-pull-requests-watch--collect-record-comments
+           key
+           record)))))))
 
 (defun bitbucket-devops-pull-requests-watch--collect-comments
     (context pull-request-id callback &optional next-url comments)
@@ -325,6 +475,8 @@ plist."
       (bitbucket-devops-pull-requests-watch--handle-error key request-error)
     (when-let ((record (gethash key bitbucket-devops-pull-requests-watch--records)))
       (setf (bitbucket-devops-pull-requests-watch--r-failures record) 0)
+      (setf (bitbucket-devops-pull-requests-watch--r-last-error record) nil)
+      (bitbucket-devops-pull-requests-watch--update-mode-line)
       (let ((initialized
              (bitbucket-devops-pull-requests-watch--r-initialized record)))
         (dolist
@@ -340,21 +492,35 @@ plist."
              record
              comment)))
         (setf (bitbucket-devops-pull-requests-watch--r-initialized record) t)
-        (bitbucket-devops-pull-requests-watch--schedule
-         record
-         bitbucket-devops-pull-requests-comments-poll-interval)))))
+        (unless (bitbucket-devops-pull-requests-watch--stop-expired key record)
+          (bitbucket-devops-pull-requests-watch--schedule
+           record
+           bitbucket-devops-pull-requests-comments-poll-interval))))))
 
 (defun bitbucket-devops-pull-requests-watch--poll (key)
   "Poll the pull request comment watcher identified by KEY immediately."
   (when-let ((record (gethash key bitbucket-devops-pull-requests-watch--records)))
-    (bitbucket-devops-pull-requests-watch--collect-comments
-     (bitbucket-devops-pull-requests-watch--r-context record)
-     (bitbucket-devops-pull-requests-watch--r-pull-request-id record)
-     (lambda (comments request-error)
-       (bitbucket-devops-pull-requests-watch--receive-comments
-        key
-        comments
-        request-error)))))
+    (unless (bitbucket-devops-pull-requests-watch--stop-expired key record)
+      (bitbucket-devops-pull-requests-rest-get
+       (bitbucket-devops-pull-requests-watch--r-context record)
+       (bitbucket-devops-pull-requests-watch--r-pull-request-id record)
+       (lambda (pull-request request-error)
+         (bitbucket-devops-pull-requests-watch--receive-pull-request
+          key
+          pull-request
+          request-error))))))
+
+(defun bitbucket-devops-pull-requests-watch--collect-record-comments
+    (key record)
+  "Collect comments for RECORD identified by KEY."
+  (bitbucket-devops-pull-requests-watch--collect-comments
+   (bitbucket-devops-pull-requests-watch--r-context record)
+   (bitbucket-devops-pull-requests-watch--r-pull-request-id record)
+   (lambda (comments request-error)
+     (bitbucket-devops-pull-requests-watch--receive-comments
+      key
+      comments
+      request-error))))
 
 ;;;###autoload
 (defun bitbucket-devops-pull-requests-watch-comments
@@ -377,6 +543,9 @@ key."
            :context context
            :pull-request-id pull-request-id
            :title title
+           :state (bitbucket-devops-pull-requests-watch--pull-request-state
+                   pull-request)
+           :started-at (float-time)
            :seen-comment-ids (make-hash-table :test #'equal))))
     (unless pull-request-id
       (user-error "Unable to watch Bitbucket pull request comments without a pull request id"))
@@ -389,7 +558,8 @@ key."
 
 (defun bitbucket-devops-pull-requests-watch-comments-active-p
     (context pull-request-id)
-  "Return non-nil when comments are being watched for PULL-REQUEST-ID."
+  "Return non-nil when comments are being watched for PULL-REQUEST-ID.
+CONTEXT identifies the Bitbucket repository."
   (not
    (null
     (gethash
@@ -402,6 +572,11 @@ key."
   "Stop watching comments for PULL-REQUEST-ID in CONTEXT."
   (bitbucket-devops-pull-requests-watch--remove
    (bitbucket-devops-pull-requests-watch--make-key context pull-request-id)))
+
+;;;###autoload
+(defun bitbucket-devops-pull-requests-watch-comments-stop-by-key (key)
+  "Stop the pull request comment watcher identified by KEY."
+  (bitbucket-devops-pull-requests-watch--remove key))
 
 ;;;###autoload
 (defun bitbucket-devops-pull-requests-watch-stop-all ()

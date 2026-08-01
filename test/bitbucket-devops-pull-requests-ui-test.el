@@ -8,6 +8,7 @@
 (require 'json)
 (require 'cl-lib)
 (require 'bitbucket-devops-pull-requests-ui)
+(require 'bitbucket-devops-pull-requests-watch)
 
 (defconst bitbucket-devops-pull-requests-ui-test-fixtures-directory
   (expand-file-name
@@ -306,7 +307,14 @@
       (should
        (eq (get-text-property (match-beginning 0) 'face)
            'bitbucket-devops-pull-requests-secondary-face))
-      (should (string-match-p "|-- #102 Will Bosch: Yes" (buffer-string))))))
+      (should
+       (string-match-p
+        "o #101 Ada Reviewer \\[2026-04-28 09:20\\] \\[resolved\\]: Can"
+        (buffer-string)))
+      (should
+       (string-match-p
+        "|-- #102 Will Bosch \\[2026-04-28 09:25\\]: Yes"
+        (buffer-string))))))
 
 (ert-deftest bitbucket-devops-pull-requests-ui-comments-display-emoji-shortcodes ()
   (let* ((raw
@@ -785,8 +793,14 @@
         (should (string-match-p (regexp-quote "- [resolved] Update documentation") text))
         (should (string-match-p (regexp-quote "- [open] Fix lint") text))
         (should (string-match-p "1 comments, 1 replies, 1 deleted" text))
-        (should (string-match-p "Ada Reviewer \\[resolved\\]" text))
-        (should (string-match-p "Will Bosch: Yes, it points" text))
+        (should
+         (string-match-p
+          "Ada Reviewer \\[2026-04-28 09:20\\] \\[resolved\\]"
+          text))
+        (should
+         (string-match-p
+          "Will Bosch \\[2026-04-28 09:25\\]: Yes, it points"
+          text))
         (should (string-match-p "83bd24f12345 Merged in development" text))
         (should (string-match-p (regexp-quote "4 files, +72 -19") text))
         (should (string-match-p
@@ -1191,17 +1205,49 @@
           (bitbucket-devops-pull-requests-ui-open-detail-at-point '(4)))))
     (should (equal opened (list context "{pipeline-uuid}")))))
 
-(ert-deftest bitbucket-devops-pull-requests-ui-build-status-local-opens-locally ()
+(ert-deftest bitbucket-devops-pull-requests-ui-build-status-local-opens-bitbucket-pipelines-locally ()
   (let ((bitbucket-devops-pull-requests-build-status-action 'local)
+        (status
+         '((url . "https://bitbucket.org/williseed1/test/pipelines/results/12")))
         opened)
-    (cl-letf (((symbol-function 'bitbucket-devops-pull-requests-ui-open-status-pipeline)
-               (lambda () (setq opened 'local)))
-              ((symbol-function 'bitbucket-devops-pull-requests-ui-browse-status)
-               (lambda () (setq opened 'browser))))
-      (bitbucket-devops-pull-requests-ui-open-status)
-      (should (eq opened 'local))
-      (bitbucket-devops-pull-requests-ui-open-status '(4))
-      (should (eq opened 'browser)))))
+    (with-temp-buffer
+      (insert "Pipeline")
+      (add-text-properties
+       (point-min)
+       (point-max)
+       (list 'bitbucket-devops-pull-requests-status status))
+      (goto-char (point-min))
+      (cl-letf (((symbol-function 'bitbucket-devops-pull-requests-ui-open-status-pipeline)
+                 (lambda () (setq opened 'local)))
+                ((symbol-function 'bitbucket-devops-pull-requests-ui-browse-status)
+                 (lambda () (setq opened 'browser))))
+        (bitbucket-devops-pull-requests-ui-open-status)
+        (should (eq opened 'local))
+        (bitbucket-devops-pull-requests-ui-open-status '(4))
+        (should (eq opened 'browser))))))
+
+(ert-deftest bitbucket-devops-pull-requests-ui-build-status-local-browses-non-pipeline-links ()
+  (let ((bitbucket-devops-pull-requests-build-status-action 'local)
+        (status
+         '((url . "https://app.terraform.io/app/select-quote/workspaces/etl/runs/run-1")
+           (build_number . 12)))
+        opened)
+    (with-temp-buffer
+      (insert "Terraform Cloud")
+      (add-text-properties
+       (point-min)
+       (point-max)
+       (list 'bitbucket-devops-pull-requests-status status))
+      (goto-char (point-min))
+      (cl-letf (((symbol-function 'bitbucket-devops-pull-requests-ui-open-status-pipeline)
+                 (lambda () (setq opened 'local)))
+                ((symbol-function 'bitbucket-devops-pull-requests-ui-browse-status)
+                 (lambda () (setq opened 'browser))))
+        (bitbucket-devops-pull-requests-ui-open-status)
+        (should (eq opened 'browser))
+        (let ((bitbucket-devops-pull-requests-build-status-action 'browser))
+          (bitbucket-devops-pull-requests-ui-open-status '(4))
+          (should (eq opened 'browser)))))))
 
 (ert-deftest bitbucket-devops-pull-requests-ui-detail-sections-open-subviews ()
   (let* ((pull-request
@@ -2326,9 +2372,12 @@ index e69de29..0000000\n"))
   (dolist (key '("b" "B" "I"))
     (should-not
      (lookup-key bitbucket-devops-pull-requests-detail-mode-map (kbd key))))
-  (dolist (key '("b" "B"))
+  (dolist (key '("b" "B" "w" "W"))
     (should-not
      (lookup-key bitbucket-devops-pull-requests-list-mode-map (kbd key))))
+  (should
+   (eq (lookup-key bitbucket-devops-pull-requests-list-mode-map (kbd "t"))
+       #'bitbucket-devops-pull-requests-ui-toggle-comment-watch))
   (dolist (mode '(bitbucket-devops-pull-requests-list-mode
                   bitbucket-devops-pull-requests-diff-mode
                   bitbucket-devops-pull-requests-commits-mode
@@ -2381,14 +2430,29 @@ index e69de29..0000000\n"))
        (string-match-p
         "C-c b[[:space:]]+Checkout branch"
         (bitbucket-devops-ui--command-panel-lines (current-buffer))))
-      (should
-       (string-match-p
-        "C-c w/C-c C-w[[:space:]]+Watch comments"
-        (bitbucket-devops-ui--command-panel-lines (current-buffer))))
       (should-not
        (string-match-p
         "\\(?:^\\|\n\\)b[[:space:]]+Checkout branch"
-        (bitbucket-devops-ui--command-panel-lines (current-buffer)))))))
+        (bitbucket-devops-ui--command-panel-lines (current-buffer))))))
+  (with-temp-buffer
+    (bitbucket-devops-pull-requests-list-mode)
+    (let* ((panel (bitbucket-devops-ui--command-panel-lines (current-buffer)))
+           (lines (split-string panel "\n" t)))
+      (should (= (length lines) 5))
+      (should
+       (string-match-p
+        "^o[[:space:]]+Browser"
+        (nth 2 lines)))
+      (should
+       (string-match-p
+        "t/C-c w/C-c C-w[[:space:]]+Watch comments"
+        (nth 3 lines)))))
+  (with-temp-buffer
+    (bitbucket-devops-pull-requests-detail-mode)
+    (should
+     (string-match-p
+      "C-c w/C-c C-w[[:space:]]+Watch comments"
+      (bitbucket-devops-ui--command-panel-lines (current-buffer))))))
 
 (ert-deftest bitbucket-devops-pull-requests-ui-command-panels-show-browser-actions ()
   (dolist (mode '(bitbucket-devops-pull-requests-list-mode
@@ -2434,7 +2498,7 @@ index e69de29..0000000\n"))
     (cl-letf (((symbol-function 'evil-define-key*)
                (lambda (&rest arguments) (push arguments observed))))
       (bitbucket-devops-pull-requests-ui--install-evil-bindings)
-      (should (= (length observed) 11))
+      (should (= (length observed) 13))
       (should
        (member
         (append
@@ -2454,6 +2518,7 @@ index e69de29..0000000\n"))
           (kbd "P") #'bitbucket-devops-pull-requests-ui-run-pipeline
           (kbd "C-c P") #'bitbucket-devops-pull-requests-ui-run-pipeline
           (kbd "C-c b") #'bitbucket-devops-pull-requests-ui-checkout-source-branch
+          (kbd "t") #'bitbucket-devops-pull-requests-ui-toggle-comment-watch
           (kbd "C-c w") #'bitbucket-devops-pull-requests-ui-toggle-comment-watch
           (kbd "C-c C-w") #'bitbucket-devops-pull-requests-ui-toggle-comment-watch
           (kbd "o") #'bitbucket-devops-pull-requests-ui-browse
@@ -2535,6 +2600,10 @@ index e69de29..0000000\n"))
                                    (kbd "b"))
                              (cons bitbucket-devops-pull-requests-list-mode-map
                                    (kbd "B"))
+                             (cons bitbucket-devops-pull-requests-list-mode-map
+                                   (kbd "w"))
+                             (cons bitbucket-devops-pull-requests-list-mode-map
+                                   (kbd "W"))
                              (cons bitbucket-devops-pull-requests-detail-mode-map
                                    (kbd "b"))
                              (cons bitbucket-devops-pull-requests-detail-mode-map
@@ -2852,6 +2921,76 @@ index e69de29..0000000\n"))
         (should
          (equal opened
                 (list context '((id . 12) (title . "New PR")))))))))
+
+(ert-deftest bitbucket-devops-pull-requests-ui-create-auto-watch-prompts-and-starts-on-yes ()
+  (let ((context '(:workspace "williseed1" :repo-slug "test"))
+        (pull-request '((id . 12) (title . "New PR")))
+        (bitbucket-devops-pull-requests-auto-watch-created t)
+        prompt
+        watched)
+    (with-temp-buffer
+      (cl-letf (((symbol-function 'read-string)
+                 (lambda (text &rest _args)
+                   (setq prompt text)
+                   ""))
+                ((symbol-function
+                  'bitbucket-devops-pull-requests-watch-comments)
+                 (lambda (request-context request-pull-request)
+                   (setq watched
+                         (list request-context request-pull-request))))
+                ((symbol-function 'bitbucket-devops-pull-requests-ui-refresh)
+                 #'ignore)
+                ((symbol-function 'bitbucket-devops-pull-requests-ui-show-details)
+                 #'ignore))
+        (bitbucket-devops-pull-requests-ui--finish-create
+         (current-buffer)
+         context
+         pull-request)))
+    (should
+     (equal prompt "Watch comments for pull request #12? [Y/n]: "))
+    (should (equal watched (list context pull-request)))))
+
+(ert-deftest bitbucket-devops-pull-requests-ui-create-auto-watch-skips-on-no ()
+  (let ((context '(:workspace "williseed1" :repo-slug "test"))
+        (pull-request '((id . 12) (title . "New PR")))
+        (bitbucket-devops-pull-requests-auto-watch-created t)
+        watched)
+    (with-temp-buffer
+      (cl-letf (((symbol-function 'read-string)
+                 (lambda (&rest _args) "n"))
+                ((symbol-function
+                  'bitbucket-devops-pull-requests-watch-comments)
+                 (lambda (&rest _args) (setq watched t)))
+                ((symbol-function 'bitbucket-devops-pull-requests-ui-refresh)
+                 #'ignore)
+                ((symbol-function 'bitbucket-devops-pull-requests-ui-show-details)
+                 #'ignore))
+        (bitbucket-devops-pull-requests-ui--finish-create
+         (current-buffer)
+         context
+         pull-request)))
+    (should-not watched)))
+
+(ert-deftest bitbucket-devops-pull-requests-ui-create-auto-watch-disabled-does-not-prompt ()
+  (let ((context '(:workspace "williseed1" :repo-slug "test"))
+        (pull-request '((id . 12) (title . "New PR")))
+        (bitbucket-devops-pull-requests-auto-watch-created nil))
+    (with-temp-buffer
+      (cl-letf (((symbol-function 'read-string)
+                 (lambda (&rest _args)
+                   (ert-fail "Auto-watch prompt should not be shown")))
+                ((symbol-function
+                  'bitbucket-devops-pull-requests-watch-comments)
+                 (lambda (&rest _args)
+                   (ert-fail "Auto-watch should not start")))
+                ((symbol-function 'bitbucket-devops-pull-requests-ui-refresh)
+                 #'ignore)
+                ((symbol-function 'bitbucket-devops-pull-requests-ui-show-details)
+                 #'ignore))
+        (bitbucket-devops-pull-requests-ui--finish-create
+         (current-buffer)
+         context
+         pull-request)))))
 
 (ert-deftest bitbucket-devops-pull-requests-ui-create-no-reviewers-skips-lookup ()
   (let (observed)
