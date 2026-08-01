@@ -19,6 +19,8 @@
   "Run BODY with an isolated watcher registry."
   `(let ((bitbucket-devops-pipelines-watch--records
           (make-hash-table :test #'equal))
+         (bitbucket-devops-pull-requests-watch--records
+          (make-hash-table :test #'equal))
          (global-mode-string nil))
      (cl-letf (((symbol-function
                  'bitbucket-devops-ui--list-all-paused-pipelines)
@@ -414,7 +416,7 @@
                (buffer-string)))
              (should
               (string-match-p
-               "No active Bitbucket pipeline trackers"
+               "No active Bitbucket watchers"
                (buffer-string)))
              (should
               (string-match-p
@@ -425,29 +427,34 @@
 (ert-deftest bitbucket-devops-pipelines-watch-list-shows-enabled-push-tracking ()
   (bitbucket-devops-pipelines-watch-test-with-records
    (let ((buffer
-          (get-buffer-create bitbucket-devops-pipelines-watch--list-buffer-name))
-         (bitbucket-devops-pipelines-magit-push-watch-mode t))
+          (get-buffer-create bitbucket-devops-pipelines-watch--list-buffer-name)))
      (unwind-protect
-         (cl-letf (((symbol-function 'bitbucket-devops-ui--display-buffer)
-                    #'ignore))
-           (bitbucket-devops-pipelines-list-watchers)
-           (with-current-buffer buffer
-             (should
-              (string-match-p
-               "Magit push tracking: ENABLED"
-               (buffer-string)))))
+         (progn
+           (setq bitbucket-devops-pipelines-magit-push-watch-mode t)
+           (cl-letf (((symbol-function 'bitbucket-devops-ui--display-buffer)
+                      #'ignore))
+             (bitbucket-devops-pipelines-list-watchers)
+             (with-current-buffer buffer
+               (should
+                (string-match-p
+                 "Magit push tracking: ENABLED"
+                 (buffer-string))))))
+       (setq bitbucket-devops-pipelines-magit-push-watch-mode nil)
        (kill-buffer buffer)))))
 
 (ert-deftest bitbucket-devops-pipelines-watch-list-toggle-push-tracking-refreshes ()
   (bitbucket-devops-pipelines-watch-test-with-records
    (let ((buffer
-          (get-buffer-create bitbucket-devops-pipelines-watch--list-buffer-name))
-         (bitbucket-devops-pipelines-magit-push-watch-mode nil))
+          (get-buffer-create bitbucket-devops-pipelines-watch--list-buffer-name)))
      (unwind-protect
          (cl-letf (((symbol-function 'bitbucket-devops-pipelines-toggle-magit-push-watch)
                     (lambda ()
-                      (setq bitbucket-devops-pipelines-magit-push-watch-mode
-                            (not bitbucket-devops-pipelines-magit-push-watch-mode)))))
+                      (set
+                       'bitbucket-devops-pipelines-magit-push-watch-mode
+                       (not
+                        (symbol-value
+                         'bitbucket-devops-pipelines-magit-push-watch-mode))))))
+           (setq bitbucket-devops-pipelines-magit-push-watch-mode nil)
            (bitbucket-devops-pipelines-watch--render-list-buffer)
            (with-current-buffer buffer
              (should
@@ -459,6 +466,7 @@
               (string-match-p
                "Magit push tracking: ENABLED"
                (buffer-string)))))
+       (setq bitbucket-devops-pipelines-magit-push-watch-mode nil)
        (kill-buffer buffer)))))
 
 (ert-deftest bitbucket-devops-pipelines-watch-list-uses-ui-back-target ()
@@ -550,8 +558,39 @@
              (with-current-buffer buffer
                (should
                 (string-match-p
-                 "No active Bitbucket pipeline trackers"
+                 "No active Bitbucket watchers"
                  (buffer-string))))))
+       (kill-buffer buffer)))))
+
+(ert-deftest bitbucket-devops-pipelines-watch-list-shows-pr-comment-watchers ()
+  (bitbucket-devops-pipelines-watch-test-with-records
+   (let ((buffer
+          (get-buffer-create bitbucket-devops-pipelines-watch--list-buffer-name))
+         (bitbucket-devops-pull-requests-comments-watch-max-age 7200))
+     (unwind-protect
+         (cl-letf (((symbol-function 'float-time) (lambda (&rest _) 1120)))
+           (puthash
+            "williseed1/test:pull-request:11:comments"
+            (bitbucket-devops-pull-requests-watch--make-record
+             :key "williseed1/test:pull-request:11:comments"
+             :context '(:workspace "williseed1" :repo-slug "test")
+             :pull-request-id 11
+             :title "Development"
+             :state "OPEN"
+             :started-at 1000
+             :seen-comment-ids (make-hash-table :test #'equal))
+            bitbucket-devops-pull-requests-watch--records)
+           (bitbucket-devops-pipelines-watch--render-list-buffer)
+           (with-current-buffer buffer
+             (let ((contents (buffer-string)))
+               (should (string-match-p "Active Bitbucket Watchers" contents))
+               (should (string-match-p "PR comment watcher" contents))
+               (should (string-match-p "#11 Development" contents))
+               (should (string-match-p "OPEN" contents))
+               (should (string-match-p "2m/2h 0m" contents))
+               (should (string-match-p "60s" contents))
+               (should (string-match-p "poll comments" contents))
+               (should (string-match-p "active" contents)))))
        (kill-buffer buffer)))))
 
 (ert-deftest bitbucket-devops-pipelines-watch-stop-at-point-preserves-list-position ()
@@ -588,6 +627,37 @@
                "c"))))
        (kill-buffer buffer)))))
 
+(ert-deftest bitbucket-devops-pipelines-watch-stop-at-point-stops-pr-comment-watcher ()
+  (bitbucket-devops-pipelines-watch-test-with-records
+   (let ((buffer
+          (get-buffer-create bitbucket-devops-pipelines-watch--list-buffer-name))
+         (key "williseed1/test:pull-request:11:comments"))
+     (unwind-protect
+         (progn
+           (puthash
+            key
+            (bitbucket-devops-pull-requests-watch--make-record
+             :key key
+             :context '(:workspace "williseed1" :repo-slug "test")
+             :pull-request-id 11
+             :title "Development"
+             :state "OPEN"
+             :started-at (float-time)
+             :seen-comment-ids (make-hash-table :test #'equal))
+            bitbucket-devops-pull-requests-watch--records)
+           (with-current-buffer buffer
+             (bitbucket-devops-pipelines-watch-list-mode)
+             (bitbucket-devops-pipelines-watch--render-list-buffer)
+             (goto-char (point-min))
+             (let ((match
+                    (text-property-search-forward
+                     'bitbucket-devops-watcher-key key t)))
+               (should match)
+               (goto-char (prop-match-beginning match)))
+             (bitbucket-devops-pipelines-stop-watching-at-point)
+             (should (= (bitbucket-devops-pull-requests-watch-active-count) 0))))
+       (kill-buffer buffer)))))
+
 (ert-deftest bitbucket-devops-pipelines-watch-notify-uses-custom-function ()
   (let (observed)
     (let ((bitbucket-devops-pipelines-notification-function
@@ -622,13 +692,16 @@
 (ert-deftest bitbucket-devops-pipelines-watch-list-uses-custom-column-widths ()
   (bitbucket-devops-pipelines-watch-test-with-records
    (let ((buffer
-          (get-buffer-create bitbucket-devops-pipelines-watch--list-buffer-name))
+         (get-buffer-create bitbucket-devops-pipelines-watch--list-buffer-name))
          (bitbucket-devops-pipelines-watch-list-column-widths
-          '((repository . 20)
-            (branch . 8)
-            (commit . 12)
+          '((type . 10)
+            (repository . 20)
+            (target . 12)
             (state . 10)
-            (result . 10))))
+            (age . 8)
+            (poll . 6)
+            (next . 12)
+            (status . 10))))
      (unwind-protect
          (progn
            (puthash
@@ -646,7 +719,7 @@
            (with-current-buffer buffer
              (should
               (string-match-p
-               (regexp-quote (make-string 64 ?─))
+               (regexp-quote (make-string 95 ?─))
                (buffer-string)))))
        (kill-buffer buffer)))))
 

@@ -26,163 +26,236 @@
          (global-mode-string nil))
      ,@body))
 
+(defmacro bitbucket-devops-pull-requests-watch-test-with-open-pr (&rest body)
+  "Run BODY with PR detail polling returning an open pull request."
+  `(cl-letf (((symbol-function 'bitbucket-devops-pull-requests-rest-get)
+              (lambda (_context _pull-request-id callback)
+                (funcall
+                 callback
+                 '((id . 11)
+                   (title . "Development")
+                   (state . "OPEN"))
+                 nil))))
+     ,@body))
+
 (ert-deftest bitbucket-devops-pull-requests-watch-comments-polls-selected-pr ()
   (bitbucket-devops-pull-requests-watch-test-with-records
    (let (observed)
-     (cl-letf (((symbol-function
-                 'bitbucket-devops-pull-requests-rest-list-comments)
-                (lambda (context pull-request-id _callback &optional next-url)
-                  (setq observed (list context pull-request-id next-url))
-                  'request-process)))
-       (let ((key
-              (bitbucket-devops-pull-requests-watch-comments
-               bitbucket-devops-pull-requests-watch-test-context
-               bitbucket-devops-pull-requests-watch-test-pull-request)))
-         (should
-          (equal key "williseed1/test:pull-request:11:comments"))
-         (should
-          (equal
-           observed
-           (list bitbucket-devops-pull-requests-watch-test-context 11 nil)))
-         (should (= (bitbucket-devops-pull-requests-watch-active-count) 1)))))))
+     (bitbucket-devops-pull-requests-watch-test-with-open-pr
+      (cl-letf (((symbol-function
+                  'bitbucket-devops-pull-requests-rest-list-comments)
+                 (lambda (context pull-request-id _callback &optional next-url)
+                   (setq observed (list context pull-request-id next-url))
+                   'request-process)))
+        (let ((key
+               (bitbucket-devops-pull-requests-watch-comments
+                bitbucket-devops-pull-requests-watch-test-context
+                bitbucket-devops-pull-requests-watch-test-pull-request)))
+          (should
+           (equal key "williseed1/test:pull-request:11:comments"))
+          (should
+           (equal
+            observed
+            (list bitbucket-devops-pull-requests-watch-test-context 11 nil)))
+          (should (= (bitbucket-devops-pull-requests-watch-active-count) 1))))))))
 
 (ert-deftest bitbucket-devops-pull-requests-watch-comments-baselines-quietly ()
   (bitbucket-devops-pull-requests-watch-test-with-records
    (let (notifications scheduled)
-     (cl-letf (((symbol-function
-                 'bitbucket-devops-pull-requests-rest-list-comments)
-                (lambda (_context _pull-request-id callback &optional _next-url)
-                  (funcall
-                   callback
-                   '((values
-                      . (((id . 101)
-                          (user . ((display_name . "Ada Reviewer")))
-                          (content . ((raw . "Existing comment")))
-                          (created_on . "2026-04-28T14:20:00.000000+00:00")))))
-                   nil)))
-               ((symbol-function 'run-at-time)
-                (lambda (delay &rest _args)
-                  (setq scheduled delay)
-                  'timer))
-               ((symbol-function 'cancel-timer) #'ignore)
-               ((symbol-function 'bitbucket-devops-pull-requests-watch--notify)
-                (lambda (message) (push message notifications))))
-       (let* ((key
-               (bitbucket-devops-pull-requests-watch-comments
-                bitbucket-devops-pull-requests-watch-test-context
-                bitbucket-devops-pull-requests-watch-test-pull-request))
-              (record
-               (gethash key bitbucket-devops-pull-requests-watch--records)))
-         (should (bitbucket-devops-pull-requests-watch--r-initialized record))
-         (should
-          (gethash
-           101
-           (bitbucket-devops-pull-requests-watch--r-seen-comment-ids record)))
-         (should-not notifications)
-         (should (= scheduled bitbucket-devops-pull-requests-comments-poll-interval)))))))
+     (bitbucket-devops-pull-requests-watch-test-with-open-pr
+      (cl-letf (((symbol-function
+                  'bitbucket-devops-pull-requests-rest-list-comments)
+                 (lambda (_context _pull-request-id callback &optional _next-url)
+                   (funcall
+                    callback
+                    '((values
+                       . (((id . 101)
+                           (user . ((display_name . "Ada Reviewer")))
+                           (content . ((raw . "Existing comment")))
+                           (created_on . "2026-04-28T14:20:00.000000+00:00")))))
+                    nil)))
+                ((symbol-function 'run-at-time)
+                 (lambda (delay &rest _args)
+                   (setq scheduled delay)
+                   'timer))
+                ((symbol-function 'cancel-timer) #'ignore)
+                ((symbol-function 'bitbucket-devops-pull-requests-watch--notify)
+                 (lambda (message) (push message notifications))))
+        (let* ((key
+                (bitbucket-devops-pull-requests-watch-comments
+                 bitbucket-devops-pull-requests-watch-test-context
+                 bitbucket-devops-pull-requests-watch-test-pull-request))
+               (record
+                (gethash key bitbucket-devops-pull-requests-watch--records)))
+          (should (bitbucket-devops-pull-requests-watch--r-initialized record))
+          (should
+           (gethash
+            101
+            (bitbucket-devops-pull-requests-watch--r-seen-comment-ids record)))
+          (should-not notifications)
+          (should (= scheduled bitbucket-devops-pull-requests-comments-poll-interval))))))))
 
 (ert-deftest bitbucket-devops-pull-requests-watch-comments-notifies-new-comments ()
   (bitbucket-devops-pull-requests-watch-test-with-records
    (let (notifications)
-     (cl-letf (((symbol-function
-                 'bitbucket-devops-pull-requests-rest-list-comments)
-                (lambda (&rest _args) 'request-process))
-               ((symbol-function 'run-at-time)
-                (lambda (&rest _args) 'timer))
-               ((symbol-function 'cancel-timer) #'ignore)
-               ((symbol-function 'bitbucket-devops-pull-requests-watch--notify)
-                (lambda (message) (push message notifications))))
-       (let ((key
-              (bitbucket-devops-pull-requests-watch-comments
-               bitbucket-devops-pull-requests-watch-test-context
-               bitbucket-devops-pull-requests-watch-test-pull-request)))
-         (bitbucket-devops-pull-requests-watch--receive-comments
-          key
-          '(((id . 101)
-             (user . ((display_name . "Ada Reviewer")))
-             (content . ((raw . "Existing comment")))
-             (created_on . "2026-04-28T14:20:00.000000+00:00")))
-          nil)
-         (bitbucket-devops-pull-requests-watch--receive-comments
-          key
-          '(((id . 101)
-             (user . ((display_name . "Ada Reviewer")))
-             (content . ((raw . "Existing comment")))
-             (created_on . "2026-04-28T14:20:00.000000+00:00"))
-            ((id . 102)
-             (parent . ((id . 101)))
-             (user . ((display_name . "Grace Reviewer")))
-             (content . ((raw . "Can you update this branch?\nThanks.")))
-             (created_on . "2026-04-28T14:25:00.000000+00:00")))
-          nil)
-         (should (= (length notifications) 1))
-         (should
-          (string-match-p
-           "williseed1/test#11 Development"
-           (car notifications)))
-         (should (string-match-p "Grace Reviewer" (car notifications)))
-         (should
-          (string-match-p
-           "Can you update this branch\\? Thanks\\."
-           (car notifications))))))))
+     (bitbucket-devops-pull-requests-watch-test-with-open-pr
+      (cl-letf (((symbol-function
+                  'bitbucket-devops-pull-requests-rest-list-comments)
+                 (lambda (&rest _args) 'request-process))
+                ((symbol-function 'run-at-time)
+                 (lambda (&rest _args) 'timer))
+                ((symbol-function 'cancel-timer) #'ignore)
+                ((symbol-function 'bitbucket-devops-pull-requests-watch--notify)
+                 (lambda (message) (push message notifications))))
+        (let ((key
+               (bitbucket-devops-pull-requests-watch-comments
+                bitbucket-devops-pull-requests-watch-test-context
+                bitbucket-devops-pull-requests-watch-test-pull-request)))
+          (bitbucket-devops-pull-requests-watch--receive-comments
+           key
+           '(((id . 101)
+              (user . ((display_name . "Ada Reviewer")))
+              (content . ((raw . "Existing comment")))
+              (created_on . "2026-04-28T14:20:00.000000+00:00")))
+           nil)
+          (bitbucket-devops-pull-requests-watch--receive-comments
+           key
+           '(((id . 101)
+              (user . ((display_name . "Ada Reviewer")))
+              (content . ((raw . "Existing comment")))
+              (created_on . "2026-04-28T14:20:00.000000+00:00"))
+             ((id . 102)
+              (parent . ((id . 101)))
+              (user . ((display_name . "Grace Reviewer")))
+              (content . ((raw . "Can you update this branch?\nThanks.")))
+              (created_on . "2026-04-28T14:25:00.000000+00:00")))
+           nil)
+          (should (= (length notifications) 1))
+          (should
+           (string-match-p
+            "williseed1/test#11 Development"
+            (car notifications)))
+          (should (string-match-p "Grace Reviewer" (car notifications)))
+          (should
+           (string-match-p
+            "Can you update this branch\\? Thanks\\."
+            (car notifications)))))))))
 
 (ert-deftest bitbucket-devops-pull-requests-watch-comments-skips-deleted-comments ()
   (bitbucket-devops-pull-requests-watch-test-with-records
    (let (notifications)
-     (cl-letf (((symbol-function
-                 'bitbucket-devops-pull-requests-rest-list-comments)
-                (lambda (&rest _args) 'request-process))
-               ((symbol-function 'run-at-time)
-                (lambda (&rest _args) 'timer))
-               ((symbol-function 'cancel-timer) #'ignore)
-               ((symbol-function 'bitbucket-devops-pull-requests-watch--notify)
-                (lambda (message) (push message notifications))))
-       (let ((key
-              (bitbucket-devops-pull-requests-watch-comments
-               bitbucket-devops-pull-requests-watch-test-context
-               bitbucket-devops-pull-requests-watch-test-pull-request)))
-         (bitbucket-devops-pull-requests-watch--receive-comments key nil nil)
-         (bitbucket-devops-pull-requests-watch--receive-comments
-          key
-          '(((id . 103)
-             (deleted . t)
-             (user . ((display_name . "Grace Reviewer")))
-             (content . ((raw . "")))
-             (created_on . "2026-04-28T14:30:00.000000+00:00")))
-          nil)
-         (should-not notifications))))))
+     (bitbucket-devops-pull-requests-watch-test-with-open-pr
+      (cl-letf (((symbol-function
+                  'bitbucket-devops-pull-requests-rest-list-comments)
+                 (lambda (&rest _args) 'request-process))
+                ((symbol-function 'run-at-time)
+                 (lambda (&rest _args) 'timer))
+                ((symbol-function 'cancel-timer) #'ignore)
+                ((symbol-function 'bitbucket-devops-pull-requests-watch--notify)
+                 (lambda (message) (push message notifications))))
+        (let ((key
+               (bitbucket-devops-pull-requests-watch-comments
+                bitbucket-devops-pull-requests-watch-test-context
+                bitbucket-devops-pull-requests-watch-test-pull-request)))
+          (bitbucket-devops-pull-requests-watch--receive-comments key nil nil)
+          (bitbucket-devops-pull-requests-watch--receive-comments
+           key
+           '(((id . 103)
+              (deleted . t)
+              (user . ((display_name . "Grace Reviewer")))
+              (content . ((raw . "")))
+              (created_on . "2026-04-28T14:30:00.000000+00:00")))
+           nil)
+          (should-not notifications)))))))
 
 (ert-deftest bitbucket-devops-pull-requests-watch-comments-network-errors-back-off ()
   (bitbucket-devops-pull-requests-watch-test-with-records
    (let (delays)
-     (cl-letf (((symbol-function
-                 'bitbucket-devops-pull-requests-rest-list-comments)
+     (bitbucket-devops-pull-requests-watch-test-with-open-pr
+      (cl-letf (((symbol-function
+                  'bitbucket-devops-pull-requests-rest-list-comments)
+                 (lambda (&rest _args) 'request-process))
+                ((symbol-function 'run-at-time)
+                 (lambda (delay &rest _args)
+                   (push delay delays)
+                   'timer))
+                ((symbol-function 'cancel-timer) #'ignore))
+        (let ((key
+               (bitbucket-devops-pull-requests-watch-comments
+                bitbucket-devops-pull-requests-watch-test-context
+                bitbucket-devops-pull-requests-watch-test-pull-request)))
+          (bitbucket-devops-pull-requests-watch--receive-comments
+           key
+           nil
+           '(:type network))
+          (bitbucket-devops-pull-requests-watch--receive-comments
+           key
+           nil
+           '(:type network))
+          (should (equal (nreverse delays) '(10 20)))))))))
+
+(ert-deftest bitbucket-devops-pull-requests-watch-comments-permanent-error-stops ()
+  (bitbucket-devops-pull-requests-watch-test-with-records
+   (let (notifications canceled)
+     (bitbucket-devops-pull-requests-watch-test-with-open-pr
+      (cl-letf (((symbol-function
+                  'bitbucket-devops-pull-requests-rest-list-comments)
+                 (lambda (&rest _args) 'request-process))
+                ((symbol-function 'cancel-timer)
+                 (lambda (timer) (setq canceled timer)))
+                ((symbol-function 'bitbucket-devops-pull-requests-watch--notify)
+                 (lambda (message) (push message notifications))))
+        (let* ((key
+                (bitbucket-devops-pull-requests-watch-comments
+                 bitbucket-devops-pull-requests-watch-test-context
+                 bitbucket-devops-pull-requests-watch-test-pull-request))
+               (record
+                (gethash key bitbucket-devops-pull-requests-watch--records)))
+          (setf (bitbucket-devops-pull-requests-watch--r-timer record) 'timer)
+          (bitbucket-devops-pull-requests-watch--receive-comments
+           key
+           nil
+           '(:type http :status 403 :message "Forbidden"))
+          (should (eq canceled 'timer))
+          (should (= (bitbucket-devops-pull-requests-watch-active-count) 0))
+          (should (= (length notifications) 1))
+          (should (string-match-p "Forbidden" (car notifications)))))))))
+
+(ert-deftest bitbucket-devops-pull-requests-watch-open-pr-continues ()
+  (bitbucket-devops-pull-requests-watch-test-with-records
+   (let (comments-requested scheduled)
+     (cl-letf (((symbol-function 'bitbucket-devops-pull-requests-rest-get)
                 (lambda (&rest _args) 'request-process))
+               ((symbol-function
+                 'bitbucket-devops-pull-requests-rest-list-comments)
+                (lambda (_context _pull-request-id callback &optional _next-url)
+                  (setq comments-requested t)
+                  (funcall callback '((values . nil)) nil)))
                ((symbol-function 'run-at-time)
                 (lambda (delay &rest _args)
-                  (push delay delays)
+                  (setq scheduled delay)
                   'timer))
                ((symbol-function 'cancel-timer) #'ignore))
        (let ((key
               (bitbucket-devops-pull-requests-watch-comments
                bitbucket-devops-pull-requests-watch-test-context
                bitbucket-devops-pull-requests-watch-test-pull-request)))
-         (bitbucket-devops-pull-requests-watch--receive-comments
+         (bitbucket-devops-pull-requests-watch--receive-pull-request
           key
-          nil
-          '(:type network))
-         (bitbucket-devops-pull-requests-watch--receive-comments
-          key
-          nil
-          '(:type network))
-         (should (equal (nreverse delays) '(10 20))))))))
+          '((id . 11) (title . "Development") (state . "OPEN"))
+          nil)
+         (should comments-requested)
+         (should (= scheduled bitbucket-devops-pull-requests-comments-poll-interval))
+         (should (= (bitbucket-devops-pull-requests-watch-active-count) 1)))))))
 
-(ert-deftest bitbucket-devops-pull-requests-watch-comments-permanent-error-stops ()
+(ert-deftest bitbucket-devops-pull-requests-watch-merged-pr-stops-and-cancels ()
   (bitbucket-devops-pull-requests-watch-test-with-records
-   (let (notifications canceled)
-     (cl-letf (((symbol-function
-                 'bitbucket-devops-pull-requests-rest-list-comments)
+   (let (comments-requested canceled notifications)
+     (cl-letf (((symbol-function 'bitbucket-devops-pull-requests-rest-get)
                 (lambda (&rest _args) 'request-process))
+               ((symbol-function
+                 'bitbucket-devops-pull-requests-rest-list-comments)
+                (lambda (&rest _args) (setq comments-requested t)))
                ((symbol-function 'cancel-timer)
                 (lambda (timer) (setq canceled timer)))
                ((symbol-function 'bitbucket-devops-pull-requests-watch--notify)
@@ -194,14 +267,113 @@
               (record
                (gethash key bitbucket-devops-pull-requests-watch--records)))
          (setf (bitbucket-devops-pull-requests-watch--r-timer record) 'timer)
-         (bitbucket-devops-pull-requests-watch--receive-comments
+         (bitbucket-devops-pull-requests-watch--receive-pull-request
           key
-          nil
-          '(:type http :status 403 :message "Forbidden"))
+          '((id . 11) (title . "Development") (state . "MERGED"))
+          nil)
+         (should-not comments-requested)
          (should (eq canceled 'timer))
          (should (= (bitbucket-devops-pull-requests-watch-active-count) 0))
-         (should (= (length notifications) 1))
-         (should (string-match-p "Forbidden" (car notifications))))))))
+         (should
+          (equal
+           (car notifications)
+           "Stopped watching PR #11 comments: PR is MERGED.")))))))
+
+(ert-deftest bitbucket-devops-pull-requests-watch-declined-pr-stops ()
+  (bitbucket-devops-pull-requests-watch-test-with-records
+   (let (notifications)
+     (cl-letf (((symbol-function 'bitbucket-devops-pull-requests-rest-get)
+                (lambda (&rest _args) 'request-process))
+               ((symbol-function 'cancel-timer) #'ignore)
+               ((symbol-function 'bitbucket-devops-pull-requests-watch--notify)
+                (lambda (message) (push message notifications))))
+       (let ((key
+              (bitbucket-devops-pull-requests-watch-comments
+               bitbucket-devops-pull-requests-watch-test-context
+               bitbucket-devops-pull-requests-watch-test-pull-request)))
+         (bitbucket-devops-pull-requests-watch--receive-pull-request
+          key
+          '((id . 11) (title . "Development") (state . "DECLINED"))
+          nil)
+         (should (= (bitbucket-devops-pull-requests-watch-active-count) 0))
+         (should
+          (equal
+           (car notifications)
+           "Stopped watching PR #11 comments: PR is DECLINED.")))))))
+
+(ert-deftest bitbucket-devops-pull-requests-watch-no-timeout-keeps-old-watcher ()
+  (bitbucket-devops-pull-requests-watch-test-with-records
+   (let ((now 1000)
+         (requests 0)
+         (bitbucket-devops-pull-requests-comments-watch-max-age nil))
+     (cl-letf (((symbol-function 'float-time) (lambda (&rest _) now))
+               ((symbol-function 'bitbucket-devops-pull-requests-rest-get)
+                (lambda (&rest _args)
+                  (cl-incf requests)
+                  'request-process)))
+       (let ((key
+              (bitbucket-devops-pull-requests-watch-comments
+               bitbucket-devops-pull-requests-watch-test-context
+               bitbucket-devops-pull-requests-watch-test-pull-request)))
+         (setq now 999999)
+         (bitbucket-devops-pull-requests-watch--poll key)
+         (should (= requests 2))
+         (should (= (bitbucket-devops-pull-requests-watch-active-count) 1)))))))
+
+(ert-deftest bitbucket-devops-pull-requests-watch-timeout-not-reached-schedules ()
+  (bitbucket-devops-pull-requests-watch-test-with-records
+   (let ((now 1000)
+         scheduled
+         (bitbucket-devops-pull-requests-comments-watch-max-age 120)
+         (bitbucket-devops-pull-requests-comments-poll-interval 60))
+     (cl-letf (((symbol-function 'float-time) (lambda (&rest _) now))
+               ((symbol-function 'bitbucket-devops-pull-requests-rest-get)
+                (lambda (&rest _args) 'request-process))
+               ((symbol-function 'run-at-time)
+                (lambda (delay &rest _args)
+                  (setq scheduled delay)
+                  'timer))
+               ((symbol-function 'cancel-timer) #'ignore))
+       (let ((key
+              (bitbucket-devops-pull-requests-watch-comments
+               bitbucket-devops-pull-requests-watch-test-context
+               bitbucket-devops-pull-requests-watch-test-pull-request)))
+         (setq now 1115)
+         (bitbucket-devops-pull-requests-watch--receive-comments key nil nil)
+         (should (= scheduled 5))
+         (should (= (bitbucket-devops-pull-requests-watch-active-count) 1)))))))
+
+(ert-deftest bitbucket-devops-pull-requests-watch-timeout-reached-stops-and-cancels ()
+  (bitbucket-devops-pull-requests-watch-test-with-records
+   (let ((now 1000)
+         requested
+         canceled
+         notifications
+         (bitbucket-devops-pull-requests-comments-watch-max-age 120))
+     (cl-letf (((symbol-function 'float-time) (lambda (&rest _) now))
+               ((symbol-function 'bitbucket-devops-pull-requests-rest-get)
+                (lambda (&rest _args) (setq requested t)))
+               ((symbol-function 'cancel-timer)
+                (lambda (timer) (setq canceled timer)))
+               ((symbol-function 'bitbucket-devops-pull-requests-watch--notify)
+                (lambda (message) (push message notifications))))
+       (let* ((key
+               (bitbucket-devops-pull-requests-watch-comments
+                bitbucket-devops-pull-requests-watch-test-context
+                bitbucket-devops-pull-requests-watch-test-pull-request))
+              (record
+               (gethash key bitbucket-devops-pull-requests-watch--records)))
+         (setf (bitbucket-devops-pull-requests-watch--r-timer record) 'timer)
+         (setq now 1120
+               requested nil)
+         (bitbucket-devops-pull-requests-watch--poll key)
+         (should-not requested)
+         (should (eq canceled 'timer))
+         (should (= (bitbucket-devops-pull-requests-watch-active-count) 0))
+         (should
+          (equal
+           (car notifications)
+           "Stopped watching PR #11 comments: watcher expired.")))))))
 
 (provide 'bitbucket-devops-pull-requests-watch-test)
 ;;; bitbucket-devops-pull-requests-watch-test.el ends here

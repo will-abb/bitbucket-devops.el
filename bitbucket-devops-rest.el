@@ -1,9 +1,25 @@
 ;;; bitbucket-devops-rest.el --- Asynchronous Bitbucket Cloud REST client -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026
+;; Copyright (C) 2026 Will Bosch-Bello
 
 ;; Author: Will Bosch-Bello <williamsbosch@gmail.com>
+;; Assisted-by: Codex:gpt-5.5-codex
+;; Assisted-by: Claude:claude-opus-5
+;; Maintainer: Will Bosch-Bello <williamsbosch@gmail.com>
 ;; Keywords: tools, vc
+;; SPDX-License-Identifier: GPL-3.0-only
+
+;; This program is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License version 3 as
+;; published by the Free Software Foundation.
+;;
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+;;
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
@@ -80,7 +96,7 @@ current repository."
    (t 0)))
 
 (defun bitbucket-devops-rest--auth-rule-match-p (rule context)
-  "Return non-nil when auth RULE applies to repository CONTEXT."
+  "Return non-nil when auth RULE matches repository CONTEXT."
   (let ((workspace (plist-get rule :workspace))
         (repo-slug (plist-get rule :repo-slug)))
     (and
@@ -120,7 +136,8 @@ current repository."
   "Return the configured Bitbucket Cloud credential.
 
 Return a plist describing either a resource access token or a user API token.
-The token remains internal to the REST client and must not be logged."
+The token remains internal to the REST client and must not be logged.
+CONTEXT identifies the Bitbucket repository."
   (let* ((host (bitbucket-devops-rest-auth-source-host context))
          (match
          (car
@@ -343,7 +360,13 @@ response text instead of parsing JSON when RAW is non-nil."
 
 (defun bitbucket-devops-rest--handle-public-response-or-redirect
     (status callback raw method redirects-left request-url)
-  "Handle a public response or follow a credential-free HTTPS redirect."
+  "Handle a public response or follow a credential-free HTTPS redirect.
+STATUS is the `url-retrieve' status plist.
+CALLBACK receives the decoded response and a request error.
+When RAW is non-nil, return the response body undecoded.
+METHOD is the HTTP method to send.
+REDIRECTS-LEFT bounds how many redirects are followed.
+REQUEST-URL is the URL that produced this response."
   (if-let* (((bitbucket-devops-rest--redirect-response-p method))
             ((> redirects-left 0))
             (location (bitbucket-devops-rest--response-location))
@@ -366,7 +389,9 @@ response text instead of parsing JSON when RAW is non-nil."
 
 (defun bitbucket-devops-rest--public-request
     (method url callback raw redirects-left)
-  "Send a credential-free METHOD request to URL and invoke CALLBACK."
+  "Send a credential-free METHOD request to URL and invoke CALLBACK.
+When RAW is non-nil, return the response body undecoded.
+REDIRECTS-LEFT bounds how many redirects are followed."
   (let* ((url-request-method method)
          (url-request-extra-headers '(("Accept" . "text/plain")))
          (url-request-data nil)
@@ -384,7 +409,14 @@ response text instead of parsing JSON when RAW is non-nil."
 
 (defun bitbucket-devops-rest--handle-response-or-redirect
     (status callback raw method body context redirects-left request-url)
-  "Handle a response or follow one trusted redirect from REQUEST-URL."
+  "Handle a response or follow one trusted redirect from REQUEST-URL.
+STATUS is the `url-retrieve' status plist.
+CALLBACK receives the decoded response and a request error.
+When RAW is non-nil, return the response body undecoded.
+METHOD is the HTTP method to send.
+BODY is the request payload.
+CONTEXT identifies the Bitbucket repository.
+REDIRECTS-LEFT bounds how many redirects are followed."
   (if-let* (((bitbucket-devops-rest--redirect-response-p method))
             ((> redirects-left 0))
             (location (bitbucket-devops-rest--response-location))
@@ -419,7 +451,14 @@ response text instead of parsing JSON when RAW is non-nil."
 
 (defun bitbucket-devops-rest--request
     (method url callback body raw context redirects-left)
-  "Send one authenticated request, preserving auth across trusted redirects."
+  "Send one authenticated request, preserving auth across trusted redirects.
+METHOD is the HTTP method to send.
+URL is the endpoint to request.
+CALLBACK receives the decoded response and a request error.
+BODY is the request payload.
+When RAW is non-nil, return the response body undecoded.
+CONTEXT identifies the Bitbucket repository.
+REDIRECTS-LEFT bounds how many redirects are followed."
   (let* ((credential (bitbucket-devops-rest-credential context))
          (url-request-method method)
          (url-request-extra-headers
@@ -649,7 +688,8 @@ CONTEXT and PIPELINE-UUID identify the pipeline run."
 
 Bitbucket Cloud does not currently expose this operation in the public 2.0
 Pipelines API.  This calls the internal endpoint used by Bitbucket's web UI,
-which may change before Atlassian publishes a supported API."
+which may change before Atlassian publishes a supported API.
+CONTEXT identifies the Bitbucket repository."
   (bitbucket-devops-rest-request
    "POST"
    (bitbucket-devops-rest-internal-repository-url

@@ -1086,6 +1086,103 @@
       "/tmp/bitbucket-devops-logs/a.log\n/tmp/bitbucket-devops-logs/b.log"))
     (should (string-match-p "copied path(s)" message-text))))
 
+(ert-deftest bitbucket-devops-pipelines-browser-urls-use-bitbucket-pages ()
+  (let ((context '(:workspace "williseed1" :repo-slug "test")))
+    (should
+     (equal
+      (bitbucket-devops-ui--repository-pipelines-url context)
+      "https://bitbucket.org/williseed1/test/pipelines/"))
+    (should
+     (equal
+      (bitbucket-devops-ui--pipeline-browser-url
+       context
+       '((uuid . "{pipeline-12}") (build_number . 12)))
+      "https://bitbucket.org/williseed1/test/pipelines/results/12"))
+    (should
+     (equal
+      (bitbucket-devops-ui--pipeline-browser-url
+       context
+       '((uuid . "{pipeline-12}")
+         (build_number . 12)
+         (links . ((html . ((href . "https://bitbucket.test/pipeline/12")))))))
+      "https://bitbucket.test/pipeline/12"))))
+
+(ert-deftest bitbucket-devops-pipelines-history-browse-opens-selected-pipeline ()
+  (let (opened)
+    (with-temp-buffer
+      (bitbucket-devops-pipelines-history-mode)
+      (setq-local bitbucket-devops-ui--context
+                  '(:workspace "williseed1" :repo-slug "test"))
+      (setq-local bitbucket-devops-ui--history-pipelines
+                  '(((uuid . "{pipeline-12}") (build_number . 12))))
+      (let ((inhibit-read-only t))
+        (insert (propertize "pipeline row" 'tabulated-list-id "{pipeline-12}")))
+      (goto-char (point-min))
+      (cl-letf (((symbol-function 'browse-url)
+                 (lambda (url &rest _args)
+                   (setq opened url))))
+        (bitbucket-devops-pipelines-browse)))
+    (should
+     (equal opened "https://bitbucket.org/williseed1/test/pipelines/results/12"))))
+
+(ert-deftest bitbucket-devops-pipelines-history-browse-opens-list-without-row ()
+  (let (opened)
+    (with-temp-buffer
+      (bitbucket-devops-pipelines-history-mode)
+      (setq-local bitbucket-devops-ui--context
+                  '(:workspace "williseed1" :repo-slug "test"))
+      (cl-letf (((symbol-function 'browse-url)
+                 (lambda (url &rest _args)
+                   (setq opened url))))
+        (bitbucket-devops-pipelines-browse)))
+    (should
+     (equal opened "https://bitbucket.org/williseed1/test/pipelines/"))))
+
+(ert-deftest bitbucket-devops-pipelines-details-browse-opens-displayed-pipeline ()
+  (let (opened)
+    (with-temp-buffer
+      (bitbucket-devops-pipelines-details-mode)
+      (setq-local bitbucket-devops-ui--context
+                  '(:workspace "williseed1" :repo-slug "test"))
+      (setq-local bitbucket-devops-ui--details-pipeline
+                  '((uuid . "{pipeline-12}") (build_number . 12)))
+      (cl-letf (((symbol-function 'browse-url)
+                 (lambda (url &rest _args)
+                   (setq opened url))))
+        (bitbucket-devops-pipelines-browse)))
+    (should
+     (equal opened "https://bitbucket.org/williseed1/test/pipelines/results/12"))))
+
+(ert-deftest bitbucket-devops-pipelines-browse-repository-opens-list ()
+  (let (opened)
+    (with-temp-buffer
+      (bitbucket-devops-pipelines-details-mode)
+      (setq-local bitbucket-devops-ui--context
+                  '(:workspace "williseed1" :repo-slug "test"))
+      (cl-letf (((symbol-function 'browse-url)
+                 (lambda (url &rest _args)
+                   (setq opened url))))
+        (bitbucket-devops-pipelines-browse-repository)))
+    (should
+     (equal opened "https://bitbucket.org/williseed1/test/pipelines/"))))
+
+(ert-deftest bitbucket-devops-pipelines-copy-browser-url-copies-current-url ()
+  (let (copied)
+    (with-temp-buffer
+      (bitbucket-devops-pipelines-details-mode)
+      (setq-local bitbucket-devops-ui--context
+                  '(:workspace "williseed1" :repo-slug "test"))
+      (setq-local bitbucket-devops-ui--details-pipeline
+                  '((uuid . "{pipeline-12}") (build_number . 12)))
+      (cl-letf (((symbol-function 'kill-new)
+                 (lambda (text &rest _args)
+                   (setq copied text)))
+                ((symbol-function 'message)
+                 (lambda (&rest _args))))
+        (bitbucket-devops-pipelines-copy-browser-url-at-point)))
+    (should
+     (equal copied "https://bitbucket.org/williseed1/test/pipelines/results/12"))))
+
 (ert-deftest bitbucket-devops-pipelines-download-selected-log-saves-selected-step ()
   (let* ((directory (make-temp-file "bitbucket-devops-pipelines-selected-log-" t))
          (expected-file
@@ -1262,6 +1359,10 @@
          (kbd "f") #'bitbucket-devops-pipelines-history-set-branch-filter
          (kbd "s") #'bitbucket-devops-pipelines-history-set-status-filter
          (kbd "RET") #'bitbucket-devops-pipelines-history-view-details
+         (kbd "S-RET") #'bitbucket-devops-pipelines-copy-browser-url-at-point
+         (kbd "S-<return>") #'bitbucket-devops-pipelines-copy-browser-url-at-point
+         (kbd "o") #'bitbucket-devops-pipelines-browse
+         (kbd "O") #'bitbucket-devops-pipelines-browse-repository
          (kbd "t") #'bitbucket-devops-pipelines-watch-selected
          (kbd "d") #'bitbucket-devops-pipelines-history-download-logs
          (kbd "R") #'bitbucket-devops-pipelines-history-run-configured
@@ -1277,6 +1378,10 @@
          bitbucket-devops-pipelines-details-mode-map
          (kbd "r") #'bitbucket-devops-pipelines-details-refresh
          (kbd "RET") #'bitbucket-devops-pipelines-view-step-log
+         (kbd "S-RET") #'bitbucket-devops-pipelines-copy-browser-url-at-point
+         (kbd "S-<return>") #'bitbucket-devops-pipelines-copy-browser-url-at-point
+         (kbd "o") #'bitbucket-devops-pipelines-browse
+         (kbd "O") #'bitbucket-devops-pipelines-browse-repository
          (kbd "d") #'bitbucket-devops-pipelines-download-selected-log
          (kbd "D") #'bitbucket-devops-pipelines-download-logs
          (kbd "t") #'bitbucket-devops-pipelines-watch-selected
@@ -1359,8 +1464,26 @@
     (lookup-key bitbucket-devops-pipelines-history-mode-map (kbd "w"))
     #'bitbucket-devops-pipelines-watch-selected)))
 
+(ert-deftest bitbucket-devops-ui-history-browser-bindings-open-and-copy ()
+  (should
+   (eq
+    (lookup-key bitbucket-devops-pipelines-history-mode-map (kbd "o"))
+    #'bitbucket-devops-pipelines-browse))
+  (should
+   (eq
+    (lookup-key bitbucket-devops-pipelines-history-mode-map (kbd "O"))
+    #'bitbucket-devops-pipelines-browse-repository))
+  (should
+   (eq
+    (lookup-key bitbucket-devops-pipelines-history-mode-map (kbd "S-RET"))
+    #'bitbucket-devops-pipelines-copy-browser-url-at-point))
+  (should
+   (eq
+    (lookup-key bitbucket-devops-pipelines-history-mode-map (kbd "S-<return>"))
+    #'bitbucket-devops-pipelines-copy-browser-url-at-point)))
+
 (ert-deftest bitbucket-devops-pipelines-history-run-configured-uses-context-root ()
-  (let (observed-directory)
+  (let (observed)
     (with-temp-buffer
       (bitbucket-devops-pipelines-history-mode)
       (setq-local bitbucket-devops-ui--context
@@ -1368,10 +1491,12 @@
                     :repo-slug "test"
                     :root "/tmp/repository/"))
       (cl-letf (((symbol-function 'bitbucket-devops-pipelines-run-configured)
-                 (lambda (&optional directory)
-                   (setq observed-directory directory))))
-        (bitbucket-devops-pipelines-history-run-configured)))
-    (should (equal observed-directory "/tmp/repository/"))))
+                 (lambda (&optional directory additional)
+                   (setq observed (list directory additional)))))
+        (bitbucket-devops-pipelines-history-run-configured)
+        (should (equal observed '("/tmp/repository/" nil)))
+        (bitbucket-devops-pipelines-history-run-configured t)
+        (should (equal observed '("/tmp/repository/" t)))))))
 
 (ert-deftest bitbucket-devops-ui-details-download-bindings-match-scope ()
   (should
@@ -1417,12 +1542,33 @@
     (lookup-key bitbucket-devops-pipelines-details-mode-map (kbd "s"))
     #'bitbucket-devops-pipelines-stop)))
 
+(ert-deftest bitbucket-devops-ui-details-browser-bindings-open-and-copy ()
+  (should
+   (eq
+    (lookup-key bitbucket-devops-pipelines-details-mode-map (kbd "o"))
+    #'bitbucket-devops-pipelines-browse))
+  (should
+   (eq
+    (lookup-key bitbucket-devops-pipelines-details-mode-map (kbd "O"))
+    #'bitbucket-devops-pipelines-browse-repository))
+  (should
+   (eq
+    (lookup-key bitbucket-devops-pipelines-details-mode-map (kbd "S-RET"))
+    #'bitbucket-devops-pipelines-copy-browser-url-at-point))
+  (should
+   (eq
+    (lookup-key bitbucket-devops-pipelines-details-mode-map (kbd "S-<return>"))
+    #'bitbucket-devops-pipelines-copy-browser-url-at-point)))
+
 (ert-deftest bitbucket-devops-ui-command-panel-lines-match-buffer-type ()
   (with-temp-buffer
     (bitbucket-devops-pipelines-history-mode)
     (let ((panel (bitbucket-devops-ui--command-panel-lines
                   (current-buffer))))
       (should (string-match-p "RET Details" panel))
+      (should (string-match-p "o Browser" panel))
+      (should (string-match-p "O Browser list" panel))
+      (should (string-match-p "S-RET Copy link" panel))
       (should (string-match-p "f Choose branch" panel))
       (should (string-match-p "t Track" panel))
       (should (string-match-p "R Run pipeline" panel))
@@ -1438,6 +1584,9 @@
     (let ((panel (bitbucket-devops-ui--command-panel-lines
                   (current-buffer))))
       (should (string-match-p "RET View log" panel))
+      (should (string-match-p "o Browser" panel))
+      (should (string-match-p "O Browser list" panel))
+      (should (string-match-p "S-RET Copy link" panel))
       (if (fboundp 'bitbucket-devops-dispatch)
           (should (string-match-p "- Back" panel))
         (should-not (string-match-p "- Back" panel)))
@@ -1466,9 +1615,9 @@
     (bitbucket-devops-pipelines-watch-list-mode)
     (let ((panel (bitbucket-devops-ui--command-panel-lines
                   (current-buffer))))
-      (should (string-match-p "Tracking" panel))
-      (should (string-match-p "m Toggle Magit push tracking" panel))
-      (should (string-match-p "x Stop selected tracker" panel))
+      (should (string-match-p "Watchers" panel))
+      (should (string-match-p "m Toggle Magit push pipeline watching" panel))
+      (should (string-match-p "x Stop selected watcher" panel))
       (should (string-match-p "q Quit" panel))
       (should (string-match-p "\\? Help" panel)))
     (should-not mode-line-process))

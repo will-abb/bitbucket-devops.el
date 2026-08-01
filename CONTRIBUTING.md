@@ -30,7 +30,8 @@ environment and its auth-source credentials are configured:
 
 ```sh
 make integration-test
-make integration-mutation-test
+INTEGRATION_EMACS_PACKAGE_DIRECTORY=~/.emacs.d/.local/straight/build-29.3 \
+  make integration-mutation-test
 ```
 
 The mutation target changes remote Bitbucket state and consumes pipeline

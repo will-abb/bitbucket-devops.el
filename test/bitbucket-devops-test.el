@@ -46,13 +46,9 @@
   (should-not (fboundp 'bitbucket-devops-pipelines-run)))
 
 (ert-deftest bitbucket-devops-dispatch-uses-at-most-three-columns ()
-  (should
-   (<=
-    (length
-     (aref
-      (car (get 'bitbucket-devops-dispatch 'transient--layout))
-      3))
-    3)))
+  (dotimes (column 3)
+    (should (transient-get-suffix 'bitbucket-devops-dispatch (list 0 column))))
+  (should-error (transient-get-suffix 'bitbucket-devops-dispatch '(0 3))))
 
 (ert-deftest bitbucket-devops-pipelines-toggle-auto-download-logs-toggles-live-value ()
   (let ((bitbucket-devops-pipelines-auto-download-logs nil))

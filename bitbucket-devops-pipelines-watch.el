@@ -1,9 +1,25 @@
 ;;; bitbucket-devops-pipelines-watch.el --- Watch Bitbucket Cloud Pipelines -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026
+;; Copyright (C) 2026 Will Bosch-Bello
 
 ;; Author: Will Bosch-Bello <williamsbosch@gmail.com>
+;; Assisted-by: Codex:gpt-5.5-codex
+;; Assisted-by: Claude:claude-opus-5
+;; Maintainer: Will Bosch-Bello <williamsbosch@gmail.com>
 ;; Keywords: tools, vc
+;; SPDX-License-Identifier: GPL-3.0-only
+
+;; This program is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License version 3 as
+;; published by the Free Software Foundation.
+;;
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+;;
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
@@ -17,6 +33,7 @@
 (require 'bitbucket-devops-context)
 (require 'bitbucket-devops-rest)
 (require 'bitbucket-devops-ui)
+(require 'bitbucket-devops-pull-requests-watch)
 
 (declare-function alert "ext:alert" (message &rest args))
 (declare-function notifications-notify "notifications" (&rest params))
@@ -71,7 +88,7 @@ fall back to `message' otherwise."
   :group 'bitbucket-devops-pipelines)
 
 (defcustom bitbucket-devops-pipelines-watch-mode-line-enabled t
-  "Whether active Bitbucket pipeline trackers appear in the mode line."
+  "Whether active Bitbucket pipeline watchers appear in the mode line."
   :type 'boolean
   :group 'bitbucket-devops-pipelines)
 
@@ -81,14 +98,18 @@ fall back to `message' otherwise."
     (commit . 12)
     (state . 14)
     (result . 10))
-  "Column widths used by the active Bitbucket tracker list buffer."
+  "Column widths used by the active Bitbucket watcher list buffer."
   :type '(alist :key-type symbol :value-type integer)
   :group 'bitbucket-devops-pipelines)
 
+;; `:noinline' keeps `cl-defstruct' from generating a compiler macro per
+;; accessor.  Those carry an auto-built docstring that exceeds 80 columns
+;; whenever the accessor name is long, and it cannot be shortened from here.
 (cl-defstruct
     (bitbucket-devops-pipelines-watch--record
      (:constructor bitbucket-devops-pipelines-watch--make-record)
-     (:conc-name bitbucket-devops-pipelines-watch--r-))
+     (:conc-name bitbucket-devops-pipelines-watch--r-)
+     (:noinline t))
   key
   kind
   context
@@ -109,8 +130,8 @@ fall back to `message' otherwise."
   "Active Bitbucket pipeline watcher records keyed by captured identity.")
 
 (defconst bitbucket-devops-pipelines-watch--list-buffer-name
-  "*Bitbucket Pipeline Watchers*"
-  "Buffer name used to display active pipeline watchers.")
+  "*Bitbucket Watchers*"
+  "Buffer name used to display active Bitbucket watchers.")
 
 (defvar bitbucket-devops-pipelines-watch-list-mode-map
   (let ((map (make-sparse-keymap)))
@@ -124,8 +145,8 @@ fall back to `message' otherwise."
   "Keymap used by `bitbucket-devops-pipelines-watch-list-mode'.")
 
 (define-derived-mode bitbucket-devops-pipelines-watch-list-mode special-mode
-  "Bitbucket-Trackers"
-  "Major mode used to display active Bitbucket pipeline trackers.")
+  "Bitbucket-Watchers"
+  "Major mode used to display active Bitbucket watchers.")
 
 (defvar bitbucket-devops-pipelines-watch-mode-line
   '(:eval (bitbucket-devops-pipelines-watch-mode-line-string))
@@ -148,12 +169,12 @@ fall back to `message' otherwise."
     (when (> count 0)
       (propertize
        (format " BB[%d]" count)
-       'help-echo "mouse-1: list active Bitbucket pipeline trackers"
+       'help-echo "mouse-1: list active Bitbucket watchers"
        'local-map bitbucket-devops-pipelines-watch-mode-line-map
        'mouse-face 'mode-line-highlight))))
 
 (defun bitbucket-devops-pipelines-watch--column-width (column default)
-  "Return configured tracker-list COLUMN width, falling back to DEFAULT."
+  "Return configured watcher-list COLUMN width, falling back to DEFAULT."
   (let ((value
          (alist-get column bitbucket-devops-pipelines-watch-list-column-widths)))
     (if (and (integerp value) (>= value 0))
@@ -189,8 +210,123 @@ fall back to `message' otherwise."
       "ENABLED"
     "DISABLED"))
 
+(defun bitbucket-devops-pipelines-watch--fit (value width)
+  "Return VALUE truncated to WIDTH display columns."
+  (truncate-string-to-width (or value "") width nil nil "..."))
+
+(defun bitbucket-devops-pipelines-watch--format-duration (seconds)
+  "Return a compact duration label for SECONDS."
+  (setq seconds (max 0 (floor (or seconds 0))))
+  (cond
+   ((< seconds 60)
+    (format "%ds" seconds))
+   ((< seconds 3600)
+    (format "%dm" (/ seconds 60)))
+   ((< seconds 86400)
+    (format "%dh %dm" (/ seconds 3600) (/ (% seconds 3600) 60)))
+   (t
+    (format "%dd %dh" (/ seconds 86400) (/ (% seconds 86400) 3600)))))
+
+(defun bitbucket-devops-pipelines-watch--repository-label (context)
+  "Return a workspace/repository label for CONTEXT."
+  (format "%s/%s"
+          (plist-get context :workspace)
+          (plist-get context :repo-slug)))
+
+(defun bitbucket-devops-pipelines-watch--pipeline-type-label (record)
+  "Return a clear watcher type label for pipeline RECORD."
+  (pcase (bitbucket-devops-pipelines-watch--r-kind record)
+    ('branch "branch pipeline subscription")
+    ('repository "repository pipeline subscription")
+    ('commit "pipeline run discovery")
+    (_ "pipeline run")))
+
+(defun bitbucket-devops-pipelines-watch--pipeline-target-label (record)
+  "Return the target label for pipeline RECORD."
+  (pcase (bitbucket-devops-pipelines-watch--r-kind record)
+    ('branch
+     (format "branch:%s"
+             (or (bitbucket-devops-pipelines-watch--r-branch record) "")))
+    ('repository "all branches")
+    ('commit
+     (if-let ((pipeline-uuid
+               (bitbucket-devops-pipelines-watch--r-pipeline-uuid record)))
+         pipeline-uuid
+       (format "commit:%s"
+               (bitbucket-devops-pipelines-watch--short-commit
+                (bitbucket-devops-pipelines-watch--r-commit record)))))
+    (_
+     (or (bitbucket-devops-pipelines-watch--r-pipeline-uuid record) ""))))
+
+(defun bitbucket-devops-pipelines-watch--pipeline-poll-label (record)
+  "Return a poll interval label for pipeline RECORD."
+  (format
+   "%ss"
+   (if (memq (bitbucket-devops-pipelines-watch--r-kind record)
+             '(branch repository))
+       bitbucket-devops-pipelines-branch-poll-interval
+     bitbucket-devops-pipelines-poll-interval)))
+
+(defun bitbucket-devops-pipelines-watch--pipeline-next-label (record)
+  "Return the next behavior label for pipeline RECORD."
+  (pcase (bitbucket-devops-pipelines-watch--r-kind record)
+    ('branch "watch branch")
+    ('repository "watch repository")
+    ('commit
+     (if (bitbucket-devops-pipelines-watch--r-pipeline-uuid record)
+         "poll until terminal"
+       "discover run"))
+    (_ "poll until terminal")))
+
+(defun bitbucket-devops-pipelines-watch--pipeline-age-label (record)
+  "Return an age label for pipeline RECORD when applicable."
+  (if-let ((started
+            (bitbucket-devops-pipelines-watch--r-discovery-started-at record)))
+      (bitbucket-devops-pipelines-watch--format-duration
+       (- (float-time) started))
+    ""))
+
+(defun bitbucket-devops-pipelines-watch--pipeline-status-label (record)
+  "Return an active/error status label for pipeline RECORD."
+  (let ((failures (bitbucket-devops-pipelines-watch--r-failures record)))
+    (if (> failures 0)
+        (format "error retry %d" failures)
+      "active")))
+
+(defun bitbucket-devops-pipelines-watch--pr-target-label (record)
+  "Return the target label for pull request comment watcher RECORD."
+  (format
+   "#%s%s"
+   (bitbucket-devops-pull-requests-watch--r-pull-request-id record)
+   (if-let ((title
+             (bitbucket-devops-pull-requests-watch--r-title record)))
+       (format " %s" title)
+     "")))
+
+(defun bitbucket-devops-pipelines-watch--pr-age-timeout-label (record)
+  "Return an age and timeout label for pull request watcher RECORD."
+  (let ((age
+         (bitbucket-devops-pipelines-watch--format-duration
+          (bitbucket-devops-pull-requests-watch--record-age record))))
+    (if-let ((max-age
+              (bitbucket-devops-pull-requests-watch--active-max-age)))
+        (format "%s/%s"
+                age
+                (bitbucket-devops-pipelines-watch--format-duration max-age))
+      age)))
+
+(defun bitbucket-devops-pipelines-watch--pr-status-label (record)
+  "Return an active/error status label for pull request watcher RECORD."
+  (if-let ((error
+            (bitbucket-devops-pull-requests-watch--r-last-error record)))
+      (format
+       "error retry %d: %s"
+       (bitbucket-devops-pull-requests-watch--r-failures record)
+       error)
+    "active"))
+
 (defun bitbucket-devops-pipelines-watch-toggle-push-tracking ()
-  "Toggle automatic Magit push tracking and refresh the tracker list."
+  "Toggle automatic Magit push tracking and refresh the watcher list."
   (interactive)
   (unless (fboundp 'bitbucket-devops-pipelines-toggle-magit-push-watch)
     (user-error "Bitbucket Pipelines dispatch is not loaded"))
@@ -208,9 +344,12 @@ fall back to `message' otherwise."
             (selected-key
              (get-text-property
               (point)
-              'bitbucket-devops-pipelines-watcher-key))
+              'bitbucket-devops-watcher-key))
             (inhibit-read-only t)
-            (records (bitbucket-devops-pipelines-watch--sorted-records)))
+            (pipeline-records
+             (bitbucket-devops-pipelines-watch--sorted-records))
+            (pr-records
+             (bitbucket-devops-pull-requests-watch--sorted-records)))
         (erase-buffer)
         (insert
          (propertize "Automatic Tracking"
@@ -223,107 +362,173 @@ fall back to `message' otherwise."
                     'bitbucket-devops-pipelines-success-face
                   'bitbucket-devops-pipelines-secondary-face))
          "\n"
-         "When enabled, successful Magit branch pushes start tracking for the pushed commit.\n\n"
-         (propertize "Active Bitbucket Pipeline Trackers"
+         "When enabled, successful Magit branch pushes start pipeline watching for the pushed commit.\n\n"
+         (propertize "Active Bitbucket Watchers"
                      'face 'bitbucket-devops-command-panel-heading-face)
-         (propertize (format "  [%d]\n\n" (length records))
-                     'face 'bitbucket-devops-pipelines-secondary-face))
-        (if records
-            (let* ((repository-width
+         (propertize
+          (format
+           "  [%d]\n\n"
+           (+ (length pipeline-records) (length pr-records)))
+          'face 'bitbucket-devops-pipelines-secondary-face))
+        (if (or pipeline-records pr-records)
+            (let* ((type-width
+                    (bitbucket-devops-pipelines-watch--column-width 'type 32))
+                   (repository-width
                     (bitbucket-devops-pipelines-watch--column-width
                      'repository
-                     52))
-                   (branch-width
-                    (bitbucket-devops-pipelines-watch--column-width 'branch 16))
-                   (commit-width
-                    (bitbucket-devops-pipelines-watch--column-width 'commit 12))
+                     32))
+                   (target-width
+                    (bitbucket-devops-pipelines-watch--column-width 'target 34))
                    (state-width
                     (bitbucket-devops-pipelines-watch--column-width 'state 14))
-                   (result-width
-                    (bitbucket-devops-pipelines-watch--column-width 'result 10))
+                   (age-width
+                    (bitbucket-devops-pipelines-watch--column-width 'age 14))
+                   (poll-width
+                    (bitbucket-devops-pipelines-watch--column-width 'poll 8))
+                   (next-width
+                    (bitbucket-devops-pipelines-watch--column-width 'next 20))
+                   (status-width
+                    (bitbucket-devops-pipelines-watch--column-width 'status 18))
+                   (format-string
+                    (format "%%-%ds %%-%ds %%-%ds %%-%ds %%-%ds %%-%ds %%-%ds %%-%ds\n"
+                            type-width
+                            repository-width
+                            target-width
+                            state-width
+                            age-width
+                            poll-width
+                            next-width
+                            status-width))
                    (divider-width
-                    (+ repository-width branch-width commit-width
-                       state-width result-width 4)))
+                    (+ type-width repository-width target-width state-width
+                       age-width poll-width next-width status-width 7)))
               (insert
                (propertize
                 (format
-                 (format "%%-%ds %%-%ds %%-%ds %%-%ds %%-%ds\n"
-                         repository-width
-                         branch-width
-                         commit-width
-                         state-width
-                         result-width)
-                 "Repository / Pipeline"
-                 "Branch"
-                 "Commit"
+                 format-string
+                 "Type"
+                 "Repository"
+                 "Target"
                  "State"
-                 "Result")
+                 "Age/Timeout"
+                 "Poll"
+                 "Next"
+                 "Status")
                 'face 'bold))
               (insert
                (propertize (make-string divider-width ?─) 'face 'shadow)
                "\n")
-              (dolist (record records)
+              (dolist (record pipeline-records)
                 (let* ((state (or (bitbucket-devops-pipelines-watch--r-state record)
                                   "DISCOVERING"))
                        (result (or (bitbucket-devops-pipelines-watch--r-result record)
                                    ""))
+                       (state-label
+                        (if (string-empty-p result)
+                            state
+                          (format "%s/%s" state result)))
                        (state-face
                         (bitbucket-devops-ui--state-face
                          (if (string= state "DISCOVERING") result state)))
+                       (key (bitbucket-devops-pipelines-watch--r-key record))
                        (line-start (point)))
                   (insert
-                   (propertize
-                    (format (format "%%-%ds" repository-width)
-                            (bitbucket-devops-pipelines-watch--describe-record record))
-                    'face 'bitbucket-devops-pipelines-build-face)
-                   " "
-                   (propertize
-                    (format (format "%%-%ds" branch-width)
-                            (or (bitbucket-devops-pipelines-watch--r-branch record) ""))
-                    'face 'bitbucket-devops-pipelines-branch-face)
-                   " "
-                   (propertize
-                    (format (format "%%-%ds" commit-width)
-                            (bitbucket-devops-pipelines-watch--short-commit
-                             (bitbucket-devops-pipelines-watch--r-commit record)))
-                    'face 'bitbucket-devops-pipelines-commit-face)
-                   " "
-                   (propertize
-                    (format (format "%%-%ds" state-width) state)
-                    'face state-face)
-                   " "
-                   (if (string-empty-p result)
-                       (make-string result-width ?\s)
-                     (propertize
-                      (format (format "%%-%ds" result-width) result)
-                      'face state-face))
-                   "\n")
+                   (format
+                    format-string
+                    (bitbucket-devops-pipelines-watch--fit
+                     (bitbucket-devops-pipelines-watch--pipeline-type-label record)
+                     type-width)
+                    (bitbucket-devops-pipelines-watch--fit
+                     (bitbucket-devops-pipelines-watch--repository-label
+                      (bitbucket-devops-pipelines-watch--r-context record))
+                     repository-width)
+                    (bitbucket-devops-pipelines-watch--fit
+                     (bitbucket-devops-pipelines-watch--pipeline-target-label record)
+                     target-width)
+                    (bitbucket-devops-pipelines-watch--fit state-label state-width)
+                    (bitbucket-devops-pipelines-watch--fit
+                     (bitbucket-devops-pipelines-watch--pipeline-age-label record)
+                     age-width)
+                    (bitbucket-devops-pipelines-watch--fit
+                     (bitbucket-devops-pipelines-watch--pipeline-poll-label record)
+                     poll-width)
+                    (bitbucket-devops-pipelines-watch--fit
+                     (bitbucket-devops-pipelines-watch--pipeline-next-label record)
+                     next-width)
+                    (bitbucket-devops-pipelines-watch--fit
+                     (bitbucket-devops-pipelines-watch--pipeline-status-label record)
+                     status-width)))
+                  (put-text-property line-start (point) 'face state-face)
+                  (put-text-property
+                   line-start (point) 'bitbucket-devops-watcher-key key)
+                  (put-text-property
+                   line-start (point) 'bitbucket-devops-watcher-type 'pipeline)
                   (put-text-property
                    line-start (point)
                    'bitbucket-devops-pipelines-watcher-key
-                   (bitbucket-devops-pipelines-watch--r-key record)))))
+                   key)))
+              (dolist (record pr-records)
+                (let* ((key
+                        (bitbucket-devops-pull-requests-watch--r-key record))
+                       (state
+                        (or (bitbucket-devops-pull-requests-watch--r-state record)
+                            "UNKNOWN"))
+                       (line-start (point)))
+                  (insert
+                   (format
+                    format-string
+                    (bitbucket-devops-pipelines-watch--fit
+                     "PR comment watcher"
+                     type-width)
+                    (bitbucket-devops-pipelines-watch--fit
+                     (bitbucket-devops-pipelines-watch--repository-label
+                      (bitbucket-devops-pull-requests-watch--r-context record))
+                     repository-width)
+                    (bitbucket-devops-pipelines-watch--fit
+                     (bitbucket-devops-pipelines-watch--pr-target-label record)
+                     target-width)
+                    (bitbucket-devops-pipelines-watch--fit state state-width)
+                    (bitbucket-devops-pipelines-watch--fit
+                     (bitbucket-devops-pipelines-watch--pr-age-timeout-label record)
+                     age-width)
+                    (bitbucket-devops-pipelines-watch--fit
+                     (format
+                      "%ss"
+                      bitbucket-devops-pull-requests-comments-poll-interval)
+                     poll-width)
+                    (bitbucket-devops-pipelines-watch--fit
+                     "poll comments"
+                     next-width)
+                    (bitbucket-devops-pipelines-watch--fit
+                     (bitbucket-devops-pipelines-watch--pr-status-label record)
+                     status-width)))
+                  (put-text-property
+                   line-start (point) 'bitbucket-devops-watcher-key key)
+                  (put-text-property
+                   line-start (point)
+                   'bitbucket-devops-watcher-type
+                   'pull-request-comments)
+                  (put-text-property
+                   line-start (point)
+                   'bitbucket-devops-pull-request-comments-watcher-key
+                   key))))
           (insert
-           (propertize "No active Bitbucket pipeline trackers.\n\n"
-                       'face 'shadow)
-           "Run trackers are removed automatically when their pipeline reaches "
-           "a terminal state.\n"
-           "Enable "
-           (propertize "bitbucket-devops-pipelines-magit-push-watch-mode"
-                       'face 'font-lock-function-name-face)
-           " or use the dispatch\n"
-           "toggle to track the pipeline started by each successful Magit branch push.\n"))
+           (propertize "No active Bitbucket watchers.\n\n" 'face 'shadow)
+           "Pipeline run watchers are removed automatically when their pipeline reaches a terminal state.\n"
+           "Branch and repository pipeline subscriptions keep watching until stopped.\n"
+           "PR comment watchers baseline existing comments on their first poll, then stop when the PR leaves OPEN or expires.\n"))
         (insert "\n"
                 (propertize "m" 'face 'bitbucket-devops-command-panel-key-face)
-                " toggle Magit push tracking  "
+                " toggle Magit push pipeline watching  "
                 (propertize "x" 'face 'bitbucket-devops-command-panel-key-face)
-                " stop  "
+                " stop selected watcher  "
                 (propertize "q" 'face 'bitbucket-devops-command-panel-key-face)
                 " quit\n")
         (goto-char (point-min))
         (if-let ((match
                   (and selected-key
                        (text-property-search-forward
-                        'bitbucket-devops-pipelines-watcher-key
+                        'bitbucket-devops-watcher-key
                         selected-key
                         t))))
             (goto-char (prop-match-beginning match))
@@ -845,10 +1050,10 @@ per-pipeline watchers.  Return the persistent repository subscription key."
   (let* ((context (bitbucket-devops-context-resolve directory))
          (branch
           (read-string
-           "Track Bitbucket branch: "
+           "Watch Bitbucket branch: "
            (or (plist-get context :branch) ""))))
     (bitbucket-devops-pipelines-watch-branch context branch)
-    (message "Tracking new Bitbucket pipelines on branch %s" branch)))
+    (message "Watching new Bitbucket pipelines on branch %s" branch)))
 
 ;;;###autoload
 (defun bitbucket-devops-pipelines-watch-repository-current (&optional directory)
@@ -856,7 +1061,7 @@ per-pipeline watchers.  Return the persistent repository subscription key."
   (interactive)
   (let ((context (bitbucket-devops-context-resolve directory)))
     (bitbucket-devops-pipelines-watch-repository context)
-    (message "Tracking new Bitbucket pipelines in %s/%s"
+    (message "Watching new Bitbucket pipelines in %s/%s"
              (plist-get context :workspace)
              (plist-get context :repo-slug))))
 
@@ -874,26 +1079,39 @@ per-pipeline watchers.  Return the persistent repository subscription key."
   (interactive
    (list
     (completing-read
-     "Stop tracker: "
+     "Stop pipeline watcher: "
      (hash-table-keys bitbucket-devops-pipelines-watch--records)
      nil
      t)))
   (unless (gethash key bitbucket-devops-pipelines-watch--records)
-    (user-error "No active Bitbucket pipeline tracker: %s" key))
+    (user-error "No active Bitbucket pipeline watcher: %s" key))
   (bitbucket-devops-pipelines-watch--remove key)
-  (message "Stopped Bitbucket pipeline tracker %s" key))
+  (message "Stopped Bitbucket pipeline watcher %s" key))
 
 (defun bitbucket-devops-pipelines-stop-watching-at-point ()
   "Stop the watcher on the current line in the watcher list buffer."
   (interactive)
-  (if-let ((key (get-text-property (point) 'bitbucket-devops-pipelines-watcher-key)))
-      (progn
-        (bitbucket-devops-pipelines-watch--remove key)
-        (message "Stopped Bitbucket pipeline tracker %s" key))
-    (user-error "No tracker on this line")))
+  (let ((key (or (get-text-property (point) 'bitbucket-devops-watcher-key)
+                 (get-text-property
+                  (point)
+                  'bitbucket-devops-pipelines-watcher-key)))
+        (type (get-text-property (point) 'bitbucket-devops-watcher-type)))
+    (pcase type
+      ('pipeline
+       (bitbucket-devops-pipelines-watch--remove key)
+       (message "Stopped Bitbucket pipeline watcher %s" key))
+      ('pull-request-comments
+       (bitbucket-devops-pull-requests-watch-comments-stop-by-key key)
+       (message "Stopped Bitbucket PR comment watcher %s" key))
+      (_
+       (if key
+           (progn
+             (bitbucket-devops-pipelines-watch--remove key)
+             (message "Stopped Bitbucket pipeline watcher %s" key))
+         (user-error "No watcher on this line"))))))
 
 (defun bitbucket-devops-pipelines-list-watchers ()
-  "Display active Bitbucket pipeline watchers."
+  "Display active Bitbucket pipeline and PR comment watchers."
   (interactive)
   (let ((previous-buffer (current-buffer))
         (buffer
@@ -913,8 +1131,22 @@ per-pipeline watchers.  Return the persistent repository subscription key."
    (kbd "q") #'bitbucket-devops-ui-quit
    (kbd "?") #'bitbucket-devops-ui-show-command-panel))
 
-(with-eval-after-load 'evil
-  (bitbucket-devops-pipelines-watch--install-evil-bindings))
+(defvar bitbucket-devops-pipelines-watch--evil-bindings-installed nil
+  "Non-nil once Evil bindings for the watcher list have been installed.")
+
+(defun bitbucket-devops-pipelines-watch-install-evil-bindings ()
+  "Install Evil bindings for the watcher list when Evil is loaded.
+
+Does nothing when Evil is absent, and installs at most once.  This runs
+from `bitbucket-devops-pipelines-watch-list-mode' rather than at load
+time, so Evil only has to be loaded by the time the list is first opened."
+  (when (and (featurep 'evil)
+             (not bitbucket-devops-pipelines-watch--evil-bindings-installed))
+    (setq bitbucket-devops-pipelines-watch--evil-bindings-installed t)
+    (bitbucket-devops-pipelines-watch--install-evil-bindings)))
+
+(add-hook 'bitbucket-devops-pipelines-watch-list-mode-hook
+          #'bitbucket-devops-pipelines-watch-install-evil-bindings)
 
 (provide 'bitbucket-devops-pipelines-watch)
 ;;; bitbucket-devops-pipelines-watch.el ends here

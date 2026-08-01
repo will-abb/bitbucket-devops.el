@@ -1,9 +1,25 @@
 ;;; bitbucket-devops-pipelines-mutate.el --- Mutate Bitbucket Cloud Pipelines -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026
+;; Copyright (C) 2026 Will Bosch-Bello
 
 ;; Author: Will Bosch-Bello <williamsbosch@gmail.com>
+;; Assisted-by: Codex:gpt-5.5-codex
+;; Assisted-by: Claude:claude-opus-5
+;; Maintainer: Will Bosch-Bello <williamsbosch@gmail.com>
 ;; Keywords: tools, vc
+;; SPDX-License-Identifier: GPL-3.0-only
+
+;; This program is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License version 3 as
+;; published by the Free Software Foundation.
+;;
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+;;
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
@@ -51,9 +67,15 @@ The function receives one prompt string and must return non-nil to proceed."
   "Whether remembered Bitbucket trigger variables include their last values.
 
 When nil, only runtime variable keys are remembered.  When non-nil, runtime
-variable values are also stored in `bitbucket-devops-pipelines-last-variable-metadata'
-and may be persisted by `savehist'.  Do not enable this when runtime variables
-may contain secrets."
+variable values are also stored in
+`bitbucket-devops-pipelines-last-variable-metadata' and may be persisted by
+`savehist'.  Do not enable this when runtime variables may contain secrets.
+
+Runtime variables are sent to Bitbucket unsecured regardless of this option.
+Bitbucket stores their values as plain text on the pipeline run and does not
+mask them in its log output, so do not pass tokens, passwords, or keys through
+a runtime variable prompt.  Define those as secured repository, deployment, or
+workspace variables in Bitbucket instead."
   :type 'boolean
   :group 'bitbucket-devops-pipelines)
 
@@ -75,12 +97,24 @@ may contain secrets."
 This always stores variable keys.  Values are stored only when
 `bitbucket-devops-pipelines-remember-variable-values' is non-nil.")
 
-(with-eval-after-load 'savehist
+(defun bitbucket-devops-pipelines-mutate--register-savehist-variables ()
+  "Register remembered trigger settings with Savehist.
+
+Called when `savehist-mode' is enabled, so the remembered branch, custom
+pipeline selector, and variable metadata survive across sessions."
   (dolist (variable
            '(bitbucket-devops-pipelines-last-branch
              bitbucket-devops-pipelines-last-custom-selector
              bitbucket-devops-pipelines-last-variable-metadata))
     (add-to-list 'savehist-additional-variables variable)))
+
+(add-hook 'savehist-mode-hook
+          #'bitbucket-devops-pipelines-mutate--register-savehist-variables)
+
+;; `savehist-mode' may already be on by the time this file loads, in which
+;; case the hook above will not run on its own.
+(when (bound-and-true-p savehist-mode)
+  (bitbucket-devops-pipelines-mutate--register-savehist-variables))
 
 (defun bitbucket-devops-pipelines-mutate--pipeline-state-name (pipeline)
   "Return PIPELINE's state name."
@@ -564,12 +598,13 @@ available."
     (list :key key :value value)))
 
 (defun bitbucket-devops-pipelines-mutate--read-variables
-    (&optional variable-metadata use-remembered-when-empty)
+    (&optional variable-metadata use-remembered-when-empty additional)
   "Read custom variables from VARIABLE-METADATA.
 
-Prompt for each declared VARIABLE-METADATA item, then offer additional
-free-form key entry.  When USE-REMEMBERED-WHEN-EMPTY is non-nil, use
-remembered metadata if VARIABLE-METADATA is nil."
+Prompt for each declared VARIABLE-METADATA item.  When
+USE-REMEMBERED-WHEN-EMPTY is non-nil, use remembered metadata if
+VARIABLE-METADATA is nil.  When ADDITIONAL is non-nil, also read free-form key
+and value pairs for variables the configuration does not declare."
   (let ((variable-metadata
          (if use-remembered-when-empty
              (or variable-metadata
@@ -578,13 +613,14 @@ remembered metadata if VARIABLE-METADATA is nil."
         variables)
     (dolist (variable variable-metadata)
       (push (bitbucket-devops-pipelines-mutate--read-variable variable) variables))
-    (let ((key
-           (read-string "Additional runtime variable key (empty for none): ")))
-      (while (not (string-empty-p key))
-        (push (bitbucket-devops-pipelines-mutate--read-variable key) variables)
-        (setq key
-              (read-string
-               "Additional runtime variable key (empty for none): "))))
+    (when additional
+      (let ((key
+             (read-string "Additional runtime variable key (empty for none): ")))
+        (while (not (string-empty-p key))
+          (push (bitbucket-devops-pipelines-mutate--read-variable key) variables)
+          (setq key
+                (read-string
+                 "Additional runtime variable key (empty for none): ")))))
     (nreverse variables)))
 
 (defun bitbucket-devops-pipelines-mutate--configured-option (config branch)
@@ -632,7 +668,9 @@ remembered metadata if VARIABLE-METADATA is nil."
 (defun bitbucket-devops-pipelines-mutate--collect-open-pull-requests
     (context callback &optional next-url results)
   "Collect open pull requests in CONTEXT and invoke CALLBACK.
-CALLBACK receives the collected pull requests and a request error."
+CALLBACK receives the collected pull requests and a request error.
+NEXT-URL continues a paginated request when non-nil.
+RESULTS accumulates pull requests across pages."
   (bitbucket-devops-pull-requests-rest-list
    context
    (lambda (page request-error)
@@ -696,7 +734,11 @@ CALLBACK receives the collected pull requests and a request error."
 
 (defun bitbucket-devops-pipelines-mutate--trigger-pull-request
     (context pull-request pattern callback deployments)
-  "Trigger a pull request pipeline in CONTEXT."
+  "Trigger a pull request pipeline in CONTEXT.
+PULL-REQUEST is the pull request alist to act on.
+PATTERN selects the pipeline definition to run.
+CALLBACK receives the decoded response and a request error.
+DEPLOYMENTS are the deployment environments to target."
   (let ((body
          (bitbucket-devops-pipelines-mutate-pull-request-body
           pull-request
@@ -758,13 +800,16 @@ CALLBACK receives the collected pull requests and a request error."
                  deployments))))))))))
 
 ;;;###autoload
-(defun bitbucket-devops-pipelines-run-configured (&optional directory)
+(defun bitbucket-devops-pipelines-run-configured (&optional directory additional)
   "Prompt for and trigger a configured pipeline in DIRECTORY.
 Use the current branch as the API target for `default', `branches', and
 `custom' selectors.  Pull request selectors resolve the open pull request whose
 source is the current branch.  Named custom pipelines may include runtime
-variables."
-  (interactive)
+variables.
+
+With a prefix argument, or when ADDITIONAL is non-nil, also prompt for
+free-form runtime variables that `bitbucket-pipelines.yml' does not declare."
+  (interactive (list nil current-prefix-arg))
   (let* ((context (bitbucket-devops-context-resolve directory))
          (branch (bitbucket-devops-context-require-branch context))
          (yml (bitbucket-devops-pipelines-mutate--pipelines-yml context))
@@ -780,7 +825,9 @@ variables."
          (variables
           (when custom-selector
             (bitbucket-devops-pipelines-mutate--read-variables
-             (bitbucket-devops-pipelines-yaml-option-variables option)))))
+             (bitbucket-devops-pipelines-yaml-option-variables option)
+             nil
+             additional))))
     (if (eq kind 'pull-request)
         (progn
           (bitbucket-devops-pipelines-mutate-remember-defaults branch nil nil)
@@ -803,9 +850,12 @@ variables."
        nil
        (bitbucket-devops-pipelines-yaml-option-deployments option)))))
 
-(defun bitbucket-devops-pipelines-rerun ()
-  "Trigger a new run using the current details buffer pipeline target."
-  (interactive)
+(defun bitbucket-devops-pipelines-rerun (&optional additional)
+  "Trigger a new run using the current details buffer pipeline target.
+
+With a prefix argument, or when ADDITIONAL is non-nil, also prompt for
+free-form runtime variables beyond the keys remembered from the last trigger."
+  (interactive "P")
   (unless bitbucket-devops-ui--details-pipeline
     (user-error "This buffer has no loaded Bitbucket pipeline details"))
   (let* ((target (alist-get 'target bitbucket-devops-ui--details-pipeline))
@@ -815,7 +865,8 @@ variables."
           (read-string
            "Custom pipeline selector (empty preserves prior target): "
            prior-selector))
-         (variables (bitbucket-devops-pipelines-mutate--read-variables nil t))
+         (variables
+          (bitbucket-devops-pipelines-mutate--read-variables nil t additional))
          (effective-selector
           (if (string-empty-p selector) prior-selector selector))
          (deployments

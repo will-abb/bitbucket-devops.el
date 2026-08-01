@@ -5,7 +5,18 @@ All notable changes to `bitbucket-devops.el` will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses semantic versioning.
 
-## [Unreleased]
+## [2.0.0] - 2026-07-31
+
+### Changed
+
+- Pipeline trigger and rerun commands no longer prompt for additional free-form
+  runtime variables by default. Pass a prefix argument to enter variables that
+  `bitbucket-pipelines.yml` does not declare.
+
+### Documentation
+
+- Documented that runtime variables are sent to Bitbucket unsecured, and that
+  secrets belong in Bitbucket's own secured variables instead.
 
 ## [1.0.0] - 2026-06-27
 
