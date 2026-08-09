@@ -4,7 +4,7 @@ INTEGRATION_TEST_AUTH_SOURCE_HOST ?= bitbucket-devops-williseed1
 INTEGRATION_EMACS_PACKAGE_ENV = $(if $(strip $(INTEGRATION_EMACS_PACKAGE_DIRECTORY)),BITBUCKET_DEVOPS_TEST_EMACS_PACKAGE_DIRECTORY=$(INTEGRATION_EMACS_PACKAGE_DIRECTORY),)
 INTEGRATION_TEST_ENV = BITBUCKET_DEVOPS_TEST_AUTH_SOURCE_HOST=$(INTEGRATION_TEST_AUTH_SOURCE_HOST)
 
-.PHONY: test integration-test integration-mutation-test compile lint checkdoc load-test clean
+.PHONY: test integration-test integration-mutation-test compile lint checkdoc check-declare load-test clean
 
 test:
 	$(EMACS) -Q --batch -l package --eval "(package-initialize)" \
@@ -55,6 +55,13 @@ checkdoc:
 			(dolist (f (file-expand-wildcards \"*.el\")) (checkdoc-file f)) \
 			(with-current-buffer (get-buffer-create \"*Warnings*\") \
 			  (when (> (buffer-size) 0) (kill-emacs 1))))"
+
+check-declare:
+	$(EMACS) -Q --batch -l package --eval "(package-initialize)" -L . \
+		-l check-declare \
+		--eval "(when (apply #'check-declare-files \
+					(file-expand-wildcards \"*.el\")) \
+				(kill-emacs 1))"
 
 load-test:
 	$(EMACS) -Q --batch -L . --eval \

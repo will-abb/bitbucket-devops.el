@@ -190,11 +190,11 @@
 
 (defun bitbucket-devops-pull-requests-comment-reply-p (comment)
   "Return non-nil when COMMENT is a reply to another comment."
-  (not (null (alist-get 'parent comment))))
+  (alist-get 'parent comment))
 
 (defun bitbucket-devops-pull-requests-comment-resolved-p (comment)
   "Return non-nil when COMMENT's thread is resolved."
-  (not (null (alist-get 'resolution comment))))
+  (alist-get 'resolution comment))
 
 (defun bitbucket-devops-pull-requests-comment-author-name (comment)
   "Return COMMENT author display name."

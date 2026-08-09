@@ -1573,7 +1573,7 @@
       (should (string-match-p "t Track" panel))
       (should (string-match-p "R Run pipeline" panel))
       (should (string-match-p "TAB Expand column" panel))
-      (if (fboundp 'bitbucket-devops-dispatch)
+      (if (fboundp 'bitbucket-devops)
           (should (string-match-p "- Back" panel))
         (should-not (string-match-p "- Back" panel)))
       (should (string-match-p "q Quit" panel))
@@ -1587,7 +1587,7 @@
       (should (string-match-p "o Browser" panel))
       (should (string-match-p "O Browser list" panel))
       (should (string-match-p "S-RET Copy link" panel))
-      (if (fboundp 'bitbucket-devops-dispatch)
+      (if (fboundp 'bitbucket-devops)
           (should (string-match-p "- Back" panel))
         (should-not (string-match-p "- Back" panel)))
       (should (string-match-p "d Download selected" panel))
@@ -1605,7 +1605,7 @@
     (let ((panel (bitbucket-devops-ui--command-panel-lines
                   (current-buffer))))
       (should (string-match-p "Navigate" panel))
-      (if (fboundp 'bitbucket-devops-dispatch)
+      (if (fboundp 'bitbucket-devops)
           (should (string-match-p "- Back" panel))
         (should-not (string-match-p "- Back" panel)))
       (should (string-match-p "q Quit" panel))
@@ -1678,7 +1678,7 @@
     (bitbucket-devops-pull-requests-diff-mode)
     (let ((panel (bitbucket-devops-ui--command-panel-lines
                   (current-buffer))))
-      (if (fboundp 'bitbucket-devops-dispatch)
+      (if (fboundp 'bitbucket-devops)
           (should (string-match-p "- Back" panel))
         (should-not (string-match-p "- Back" panel)))
       (should (string-match-p "i Inline comment" panel))
@@ -1719,10 +1719,10 @@
                (current-buffer))))))
       (kill-buffer previous))))
 
-(ert-deftest bitbucket-devops-ui-command-panel-shows-back-with-dispatch-fallback ()
+(ert-deftest bitbucket-devops-ui-command-panel-shows-back-with-main-fallback ()
   (with-temp-buffer
     (bitbucket-devops-pipelines-history-mode)
-    (cl-letf (((symbol-function 'bitbucket-devops-dispatch)
+    (cl-letf (((symbol-function 'bitbucket-devops)
                (lambda () (interactive))))
       (should
        (string-match-p
@@ -2038,11 +2038,11 @@
               (should (equal observed (list previous t))))))
       (kill-buffer previous))))
 
-(ert-deftest bitbucket-devops-ui-back-opens-dispatch-without-prior-buffer ()
+(ert-deftest bitbucket-devops-ui-back-opens-main-command-without-prior-buffer ()
   (let (opened)
     (with-temp-buffer
       (bitbucket-devops-pipelines-history-mode)
-      (cl-letf (((symbol-function 'bitbucket-devops-dispatch)
+      (cl-letf (((symbol-function 'bitbucket-devops)
                  (lambda () (interactive) (setq opened t))))
         (bitbucket-devops-ui-back)
         (should opened)))))

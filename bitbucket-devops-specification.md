@@ -806,7 +806,7 @@ After changing keybinding options, users can run
 
 ## 12. User Interface
 
-Provide a transient prefix command, `bitbucket-devops-dispatch`, with the
+Provide a transient prefix command, `bitbucket-devops`, with the
 repository-scoped actions:
 
 ```text

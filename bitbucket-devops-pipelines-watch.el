@@ -37,7 +37,8 @@
 
 (declare-function alert "ext:alert" (message &rest args))
 (declare-function notifications-notify "notifications" (&rest params))
-(declare-function evil-define-key* "evil-core" (state keymap key def &rest bindings))
+(declare-function evil-define-key* "ext:evil-core"
+                  (state keymap key def &rest bindings))
 (declare-function bitbucket-devops-pipelines-toggle-magit-push-watch "bitbucket-devops")
 (defvar bitbucket-devops-pipelines-magit-push-watch-mode)
 
@@ -144,9 +145,35 @@ fall back to `message' otherwise."
     map)
   "Keymap used by `bitbucket-devops-pipelines-watch-list-mode'.")
 
+(defun bitbucket-devops-pipelines-watch--install-evil-bindings ()
+  "Install Evil normal-state bindings for the watcher list."
+  (evil-define-key*
+   'normal
+   bitbucket-devops-pipelines-watch-list-mode-map
+   (kbd "m") #'bitbucket-devops-pipelines-watch-toggle-push-tracking
+   (kbd "x") #'bitbucket-devops-pipelines-stop-watching-at-point
+   (kbd "-") #'bitbucket-devops-ui-back
+   (kbd "q") #'bitbucket-devops-ui-quit
+   (kbd "?") #'bitbucket-devops-ui-show-command-panel))
+
+(defvar bitbucket-devops-pipelines-watch--evil-bindings-installed nil
+  "Non-nil once Evil bindings for the watcher list have been installed.")
+
+(defun bitbucket-devops-pipelines-watch-install-evil-bindings ()
+  "Install Evil bindings for the watcher list when Evil is loaded.
+
+Does nothing when Evil is absent, and installs at most once.  The watcher
+mode invokes this function when it starts, so Evil only has to be loaded by
+the time the list is first opened."
+  (when (and (featurep 'evil)
+             (not bitbucket-devops-pipelines-watch--evil-bindings-installed))
+    (setq bitbucket-devops-pipelines-watch--evil-bindings-installed t)
+    (bitbucket-devops-pipelines-watch--install-evil-bindings)))
+
 (define-derived-mode bitbucket-devops-pipelines-watch-list-mode special-mode
   "Bitbucket-Watchers"
-  "Major mode used to display active Bitbucket watchers.")
+  "Major mode used to display active Bitbucket watchers."
+  (bitbucket-devops-pipelines-watch-install-evil-bindings))
 
 (defvar bitbucket-devops-pipelines-watch-mode-line
   '(:eval (bitbucket-devops-pipelines-watch-mode-line-string))
@@ -1119,34 +1146,6 @@ per-pipeline watchers.  Return the persistent repository subscription key."
     (bitbucket-devops-pipelines-watch--render-list-buffer)
     (bitbucket-devops-ui--display-buffer buffer t previous-buffer)
     buffer))
-
-(defun bitbucket-devops-pipelines-watch--install-evil-bindings ()
-  "Install Evil normal-state bindings for the watcher list."
-  (evil-define-key*
-   'normal
-   bitbucket-devops-pipelines-watch-list-mode-map
-   (kbd "m") #'bitbucket-devops-pipelines-watch-toggle-push-tracking
-   (kbd "x") #'bitbucket-devops-pipelines-stop-watching-at-point
-   (kbd "-") #'bitbucket-devops-ui-back
-   (kbd "q") #'bitbucket-devops-ui-quit
-   (kbd "?") #'bitbucket-devops-ui-show-command-panel))
-
-(defvar bitbucket-devops-pipelines-watch--evil-bindings-installed nil
-  "Non-nil once Evil bindings for the watcher list have been installed.")
-
-(defun bitbucket-devops-pipelines-watch-install-evil-bindings ()
-  "Install Evil bindings for the watcher list when Evil is loaded.
-
-Does nothing when Evil is absent, and installs at most once.  This runs
-from `bitbucket-devops-pipelines-watch-list-mode' rather than at load
-time, so Evil only has to be loaded by the time the list is first opened."
-  (when (and (featurep 'evil)
-             (not bitbucket-devops-pipelines-watch--evil-bindings-installed))
-    (setq bitbucket-devops-pipelines-watch--evil-bindings-installed t)
-    (bitbucket-devops-pipelines-watch--install-evil-bindings)))
-
-(add-hook 'bitbucket-devops-pipelines-watch-list-mode-hook
-          #'bitbucket-devops-pipelines-watch-install-evil-bindings)
 
 (provide 'bitbucket-devops-pipelines-watch)
 ;;; bitbucket-devops-pipelines-watch.el ends here
