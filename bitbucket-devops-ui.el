@@ -41,7 +41,8 @@
 (require 'bitbucket-devops-context)
 (require 'bitbucket-devops-rest)
 
-(declare-function bitbucket-devops-dispatch "bitbucket-devops" ())
+;; `transient-define-prefix' generates this function.
+(declare-function bitbucket-devops "bitbucket-devops" () t)
 (declare-function bitbucket-devops-pipelines-run-configured
                   "bitbucket-devops-pipelines-mutate"
                   (&optional directory additional))
@@ -59,7 +60,8 @@
 (declare-function bitbucket-devops-pull-requests-ui-keys-for-command
                   "bitbucket-devops-pull-requests-ui"
                   (command))
-(declare-function evil-define-key* "evil-core" (state keymap key def &rest bindings))
+(declare-function evil-define-key* "ext:evil-core"
+                  (state keymap key def &rest bindings))
 (declare-function magit-list-local-branch-names "magit-git" ())
 (declare-function magit-list-remote-branch-names "magit-git"
                   (&optional remote relative))
@@ -134,8 +136,8 @@ The value t or `always' shows the panel whenever a package UI buffer is
 displayed.  The value nil or `manual' keeps it hidden until `?' toggles it
 on.  The value `never' disables both automatic display and `?' display."
   :type '(choice
-          (const :tag "Show automatically" t)
-          (const :tag "Show automatically" always)
+          (const :tag "Show automatically (t)" t)
+          (const :tag "Show automatically (always)" always)
           (const :tag "Show only after pressing ?" manual)
           (const :tag "Show only after pressing ? (legacy nil)" nil)
           (const :tag "Never show" never))
@@ -173,7 +175,7 @@ completed.  Set to nil or 0 to disable unconditional revalidation."
 (defcustom bitbucket-devops-pipelines-sync-active-count 20
   "Number of newest active pipelines to refetch during history refresh.
 
-Only pipelines whose top-level API state is not `COMPLETED', or whose state is
+Only pipelines whose top-level API state is not COMPLETED, or whose state is
 unknown, are considered active.  That includes pending, running, paused, and
 manual-waiting pipelines.  Completed pipelines are skipped unless they are also
 covered by `bitbucket-devops-pipelines-sync-always-count'."
@@ -651,6 +653,129 @@ PIPELINE is the pipeline owning STEP."
   (when (bound-and-true-p visual-line-mode)
     (visual-line-mode -1)))
 
+(defvar bitbucket-devops-pipelines-history-mode-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map tabulated-list-mode-map)
+    (define-key map (kbd "r") #'bitbucket-devops-pipelines-history-refresh)
+    (define-key map (kbd "n") #'bitbucket-devops-pipelines-history-load-more)
+    (define-key map (kbd "f")
+                #'bitbucket-devops-pipelines-history-set-branch-filter)
+    (define-key map (kbd "s")
+                #'bitbucket-devops-pipelines-history-set-status-filter)
+    (define-key map (kbd "RET")
+                #'bitbucket-devops-pipelines-history-view-details)
+    (define-key map (kbd "S-RET")
+                #'bitbucket-devops-pipelines-copy-browser-url-at-point)
+    (define-key map (kbd "S-<return>")
+                #'bitbucket-devops-pipelines-copy-browser-url-at-point)
+    (define-key map (kbd "o") #'bitbucket-devops-pipelines-browse)
+    (define-key map (kbd "O") #'bitbucket-devops-pipelines-browse-repository)
+    (define-key map (kbd "t") #'bitbucket-devops-pipelines-watch-selected)
+    (define-key map (kbd "d")
+                #'bitbucket-devops-pipelines-history-download-logs)
+    (define-key map (kbd "R")
+                #'bitbucket-devops-pipelines-history-run-configured)
+    (define-key map (kbd "TAB")
+                #'bitbucket-devops-pipelines-history-expand-column-at-point)
+    (define-key map (kbd "-") #'bitbucket-devops-ui-back)
+    (define-key map (kbd "q") #'bitbucket-devops-ui-quit)
+    (define-key map (kbd "?") #'bitbucket-devops-ui-show-command-panel)
+    map)
+  "Keymap for `bitbucket-devops-pipelines-history-mode'.")
+
+(defvar bitbucket-devops-pipelines-details-mode-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map tabulated-list-mode-map)
+    (define-key map (kbd "r") #'bitbucket-devops-pipelines-details-refresh)
+    (define-key map (kbd "RET") #'bitbucket-devops-pipelines-view-step-log)
+    (define-key map (kbd "S-RET")
+                #'bitbucket-devops-pipelines-copy-browser-url-at-point)
+    (define-key map (kbd "S-<return>")
+                #'bitbucket-devops-pipelines-copy-browser-url-at-point)
+    (define-key map (kbd "o") #'bitbucket-devops-pipelines-browse)
+    (define-key map (kbd "O") #'bitbucket-devops-pipelines-browse-repository)
+    (define-key map (kbd "d")
+                #'bitbucket-devops-pipelines-download-selected-log)
+    (define-key map (kbd "D") #'bitbucket-devops-pipelines-download-logs)
+    (define-key map (kbd "t") #'bitbucket-devops-pipelines-watch-selected)
+    (define-key map (kbd "R") #'bitbucket-devops-pipelines-rerun)
+    (define-key map (kbd "c") #'bitbucket-devops-pipelines-continue)
+    (define-key map (kbd "s") #'bitbucket-devops-pipelines-stop)
+    (define-key map (kbd "-") #'bitbucket-devops-ui-back)
+    (define-key map (kbd "q") #'bitbucket-devops-ui-quit)
+    (define-key map (kbd "?") #'bitbucket-devops-ui-show-command-panel)
+    map)
+  "Keymap for `bitbucket-devops-pipelines-details-mode'.")
+
+(defvar bitbucket-devops-pipelines-log-mode-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map compilation-mode-map)
+    (define-key map (kbd "-") #'bitbucket-devops-ui-back)
+    (define-key map (kbd "q") #'bitbucket-devops-ui-quit)
+    (define-key map (kbd "?") #'bitbucket-devops-ui-show-command-panel)
+    map)
+  "Keymap for `bitbucket-devops-pipelines-log-mode'.")
+
+(defun bitbucket-devops-ui--install-evil-bindings ()
+  "Install Evil normal-state bindings for Bitbucket Pipelines buffers."
+  (evil-define-key*
+   'normal
+   bitbucket-devops-pipelines-history-mode-map
+   (kbd "r") #'bitbucket-devops-pipelines-history-refresh
+   (kbd "n") #'bitbucket-devops-pipelines-history-load-more
+   (kbd "f") #'bitbucket-devops-pipelines-history-set-branch-filter
+   (kbd "s") #'bitbucket-devops-pipelines-history-set-status-filter
+   (kbd "RET") #'bitbucket-devops-pipelines-history-view-details
+   (kbd "S-RET") #'bitbucket-devops-pipelines-copy-browser-url-at-point
+   (kbd "S-<return>") #'bitbucket-devops-pipelines-copy-browser-url-at-point
+   (kbd "o") #'bitbucket-devops-pipelines-browse
+   (kbd "O") #'bitbucket-devops-pipelines-browse-repository
+   (kbd "t") #'bitbucket-devops-pipelines-watch-selected
+   (kbd "d") #'bitbucket-devops-pipelines-history-download-logs
+   (kbd "R") #'bitbucket-devops-pipelines-history-run-configured
+   (kbd "TAB") #'bitbucket-devops-pipelines-history-expand-column-at-point
+   (kbd "-") #'bitbucket-devops-ui-back
+   (kbd "q") #'bitbucket-devops-ui-quit
+   (kbd "?") #'bitbucket-devops-ui-show-command-panel)
+  (evil-define-key*
+   'normal
+   bitbucket-devops-pipelines-details-mode-map
+   (kbd "r") #'bitbucket-devops-pipelines-details-refresh
+   (kbd "RET") #'bitbucket-devops-pipelines-view-step-log
+   (kbd "S-RET") #'bitbucket-devops-pipelines-copy-browser-url-at-point
+   (kbd "S-<return>") #'bitbucket-devops-pipelines-copy-browser-url-at-point
+   (kbd "o") #'bitbucket-devops-pipelines-browse
+   (kbd "O") #'bitbucket-devops-pipelines-browse-repository
+   (kbd "d") #'bitbucket-devops-pipelines-download-selected-log
+   (kbd "D") #'bitbucket-devops-pipelines-download-logs
+   (kbd "t") #'bitbucket-devops-pipelines-watch-selected
+   (kbd "R") #'bitbucket-devops-pipelines-rerun
+   (kbd "c") #'bitbucket-devops-pipelines-continue
+   (kbd "s") #'bitbucket-devops-pipelines-stop
+   (kbd "-") #'bitbucket-devops-ui-back
+   (kbd "q") #'bitbucket-devops-ui-quit
+   (kbd "?") #'bitbucket-devops-ui-show-command-panel)
+  (evil-define-key*
+   'normal
+   bitbucket-devops-pipelines-log-mode-map
+   (kbd "-") #'bitbucket-devops-ui-back
+   (kbd "q") #'bitbucket-devops-ui-quit
+   (kbd "?") #'bitbucket-devops-ui-show-command-panel))
+
+(defvar bitbucket-devops-ui--evil-bindings-installed nil
+  "Non-nil once Evil bindings for Pipelines buffers have been installed.")
+
+(defun bitbucket-devops-ui-install-evil-bindings ()
+  "Install Evil bindings for Pipelines buffers when Evil is loaded.
+
+Does nothing when Evil is absent, and installs at most once.  The Pipelines
+major modes invoke this function when they start, so Evil only has to be
+loaded by the time the first Pipelines buffer is opened."
+  (when (and (featurep 'evil)
+             (not bitbucket-devops-ui--evil-bindings-installed))
+    (setq bitbucket-devops-ui--evil-bindings-installed t)
+    (bitbucket-devops-ui--install-evil-bindings)))
+
 (define-derived-mode bitbucket-devops-pipelines-history-mode tabulated-list-mode
   "Bitbucket-DevOps-Pipelines-History"
   "Major mode for Bitbucket Cloud pipeline history."
@@ -702,7 +827,8 @@ PIPELINE is the pipeline owning STEP."
             #'bitbucket-devops-pipelines-history-refresh
             nil
             t)
-  (tabulated-list-init-header))
+  (tabulated-list-init-header)
+  (bitbucket-devops-ui-install-evil-bindings))
 
 (define-derived-mode bitbucket-devops-pipelines-details-mode tabulated-list-mode
   "Bitbucket-DevOps-Pipelines-Details"
@@ -730,11 +856,13 @@ PIPELINE is the pipeline owning STEP."
              'duration bitbucket-devops-pipelines-details-column-widths 10)
            t)])
   (setq tabulated-list-padding 2)
-  (tabulated-list-init-header))
+  (tabulated-list-init-header)
+  (bitbucket-devops-ui-install-evil-bindings))
 
 (define-derived-mode bitbucket-devops-pipelines-log-mode compilation-mode
   "Bitbucket-DevOps-Pipelines-Log"
-  "Major mode for completed Bitbucket Cloud pipeline step logs.")
+  "Major mode for completed Bitbucket Cloud pipeline step logs."
+  (bitbucket-devops-ui-install-evil-bindings))
 
 (define-derived-mode bitbucket-devops-command-panel-mode special-mode
   "Bitbucket-DevOps-Commands"
@@ -784,7 +912,7 @@ Pad the returned cell to WIDTH columns when WIDTH is non-nil."
          'bitbucket-devops-pull-requests-diff-mode
          'bitbucket-devops-pull-requests-commits-mode
          'bitbucket-devops-pull-requests-activity-mode)))
-     (fboundp 'bitbucket-devops-dispatch))))
+     (fboundp 'bitbucket-devops))))
 
 (defun bitbucket-devops-ui--command-panel-back-cell (&optional width)
   "Return a Back command cell only when the current buffer can go back.
@@ -1355,8 +1483,8 @@ is the package UI screen used by `bitbucket-devops-ui-back'."
     (bitbucket-devops-ui--display-buffer
      bitbucket-devops-ui--previous-buffer
      t))
-   ((fboundp 'bitbucket-devops-dispatch)
-    (call-interactively #'bitbucket-devops-dispatch))
+   ((fboundp 'bitbucket-devops)
+    (call-interactively #'bitbucket-devops))
    (t
     (setq-local bitbucket-devops-ui--previous-buffer nil)
     (user-error "No previous Bitbucket DevOps screen is available"))))
@@ -2653,140 +2781,6 @@ With prefix argument REPOSITORY, copy the repository Pipelines page URL."
       (bitbucket-devops-pipelines-history-refresh))
     (bitbucket-devops-ui--display-buffer buffer t previous-buffer)
     buffer))
-
-(define-key bitbucket-devops-pipelines-history-mode-map (kbd "r")
-            #'bitbucket-devops-pipelines-history-refresh)
-(define-key bitbucket-devops-pipelines-history-mode-map (kbd "n")
-            #'bitbucket-devops-pipelines-history-load-more)
-(define-key bitbucket-devops-pipelines-history-mode-map (kbd "f")
-            #'bitbucket-devops-pipelines-history-set-branch-filter)
-(define-key bitbucket-devops-pipelines-history-mode-map (kbd "s")
-            #'bitbucket-devops-pipelines-history-set-status-filter)
-(define-key bitbucket-devops-pipelines-history-mode-map (kbd "RET")
-            #'bitbucket-devops-pipelines-history-view-details)
-(define-key bitbucket-devops-pipelines-history-mode-map (kbd "S-RET")
-            #'bitbucket-devops-pipelines-copy-browser-url-at-point)
-(define-key bitbucket-devops-pipelines-history-mode-map (kbd "S-<return>")
-            #'bitbucket-devops-pipelines-copy-browser-url-at-point)
-(define-key bitbucket-devops-pipelines-history-mode-map (kbd "o")
-            #'bitbucket-devops-pipelines-browse)
-(define-key bitbucket-devops-pipelines-history-mode-map (kbd "O")
-            #'bitbucket-devops-pipelines-browse-repository)
-(define-key bitbucket-devops-pipelines-history-mode-map (kbd "t")
-            #'bitbucket-devops-pipelines-watch-selected)
-(define-key bitbucket-devops-pipelines-history-mode-map (kbd "d")
-            #'bitbucket-devops-pipelines-history-download-logs)
-(define-key bitbucket-devops-pipelines-history-mode-map (kbd "R")
-            #'bitbucket-devops-pipelines-history-run-configured)
-(define-key bitbucket-devops-pipelines-history-mode-map (kbd "TAB")
-            #'bitbucket-devops-pipelines-history-expand-column-at-point)
-(define-key bitbucket-devops-pipelines-history-mode-map (kbd "-")
-            #'bitbucket-devops-ui-back)
-(define-key bitbucket-devops-pipelines-history-mode-map (kbd "q")
-            #'bitbucket-devops-ui-quit)
-(define-key bitbucket-devops-pipelines-history-mode-map (kbd "?")
-            #'bitbucket-devops-ui-show-command-panel)
-(define-key bitbucket-devops-pipelines-details-mode-map (kbd "r")
-            #'bitbucket-devops-pipelines-details-refresh)
-(define-key bitbucket-devops-pipelines-details-mode-map (kbd "RET")
-            #'bitbucket-devops-pipelines-view-step-log)
-(define-key bitbucket-devops-pipelines-details-mode-map (kbd "S-RET")
-            #'bitbucket-devops-pipelines-copy-browser-url-at-point)
-(define-key bitbucket-devops-pipelines-details-mode-map (kbd "S-<return>")
-            #'bitbucket-devops-pipelines-copy-browser-url-at-point)
-(define-key bitbucket-devops-pipelines-details-mode-map (kbd "o")
-            #'bitbucket-devops-pipelines-browse)
-(define-key bitbucket-devops-pipelines-details-mode-map (kbd "O")
-            #'bitbucket-devops-pipelines-browse-repository)
-(define-key bitbucket-devops-pipelines-details-mode-map (kbd "d")
-            #'bitbucket-devops-pipelines-download-selected-log)
-(define-key bitbucket-devops-pipelines-details-mode-map (kbd "D")
-            #'bitbucket-devops-pipelines-download-logs)
-(define-key bitbucket-devops-pipelines-details-mode-map (kbd "t")
-            #'bitbucket-devops-pipelines-watch-selected)
-(define-key bitbucket-devops-pipelines-details-mode-map (kbd "R")
-            #'bitbucket-devops-pipelines-rerun)
-(define-key bitbucket-devops-pipelines-details-mode-map (kbd "c")
-            #'bitbucket-devops-pipelines-continue)
-(define-key bitbucket-devops-pipelines-details-mode-map (kbd "s")
-            #'bitbucket-devops-pipelines-stop)
-(define-key bitbucket-devops-pipelines-details-mode-map (kbd "-")
-            #'bitbucket-devops-ui-back)
-(define-key bitbucket-devops-pipelines-details-mode-map (kbd "q")
-            #'bitbucket-devops-ui-quit)
-(define-key bitbucket-devops-pipelines-details-mode-map (kbd "?")
-            #'bitbucket-devops-ui-show-command-panel)
-(define-key bitbucket-devops-pipelines-log-mode-map (kbd "-")
-            #'bitbucket-devops-ui-back)
-(define-key bitbucket-devops-pipelines-log-mode-map (kbd "q")
-            #'bitbucket-devops-ui-quit)
-(define-key bitbucket-devops-pipelines-log-mode-map (kbd "?")
-            #'bitbucket-devops-ui-show-command-panel)
-
-(defun bitbucket-devops-ui--install-evil-bindings ()
-  "Install Evil normal-state bindings for Bitbucket Pipelines buffers."
-  (evil-define-key*
-   'normal
-   bitbucket-devops-pipelines-history-mode-map
-   (kbd "r") #'bitbucket-devops-pipelines-history-refresh
-   (kbd "n") #'bitbucket-devops-pipelines-history-load-more
-   (kbd "f") #'bitbucket-devops-pipelines-history-set-branch-filter
-   (kbd "s") #'bitbucket-devops-pipelines-history-set-status-filter
-   (kbd "RET") #'bitbucket-devops-pipelines-history-view-details
-   (kbd "S-RET") #'bitbucket-devops-pipelines-copy-browser-url-at-point
-   (kbd "S-<return>") #'bitbucket-devops-pipelines-copy-browser-url-at-point
-   (kbd "o") #'bitbucket-devops-pipelines-browse
-   (kbd "O") #'bitbucket-devops-pipelines-browse-repository
-   (kbd "t") #'bitbucket-devops-pipelines-watch-selected
-   (kbd "d") #'bitbucket-devops-pipelines-history-download-logs
-   (kbd "R") #'bitbucket-devops-pipelines-history-run-configured
-   (kbd "TAB") #'bitbucket-devops-pipelines-history-expand-column-at-point
-   (kbd "-") #'bitbucket-devops-ui-back
-   (kbd "q") #'bitbucket-devops-ui-quit
-   (kbd "?") #'bitbucket-devops-ui-show-command-panel)
-  (evil-define-key*
-   'normal
-   bitbucket-devops-pipelines-details-mode-map
-   (kbd "r") #'bitbucket-devops-pipelines-details-refresh
-   (kbd "RET") #'bitbucket-devops-pipelines-view-step-log
-   (kbd "S-RET") #'bitbucket-devops-pipelines-copy-browser-url-at-point
-   (kbd "S-<return>") #'bitbucket-devops-pipelines-copy-browser-url-at-point
-   (kbd "o") #'bitbucket-devops-pipelines-browse
-   (kbd "O") #'bitbucket-devops-pipelines-browse-repository
-   (kbd "d") #'bitbucket-devops-pipelines-download-selected-log
-   (kbd "D") #'bitbucket-devops-pipelines-download-logs
-   (kbd "t") #'bitbucket-devops-pipelines-watch-selected
-   (kbd "R") #'bitbucket-devops-pipelines-rerun
-   (kbd "c") #'bitbucket-devops-pipelines-continue
-   (kbd "s") #'bitbucket-devops-pipelines-stop
-   (kbd "-") #'bitbucket-devops-ui-back
-   (kbd "q") #'bitbucket-devops-ui-quit
-   (kbd "?") #'bitbucket-devops-ui-show-command-panel)
-  (evil-define-key*
-   'normal
-   bitbucket-devops-pipelines-log-mode-map
-   (kbd "-") #'bitbucket-devops-ui-back
-   (kbd "q") #'bitbucket-devops-ui-quit
-   (kbd "?") #'bitbucket-devops-ui-show-command-panel))
-
-(defvar bitbucket-devops-ui--evil-bindings-installed nil
-  "Non-nil once Evil bindings for Pipelines buffers have been installed.")
-
-(defun bitbucket-devops-ui-install-evil-bindings ()
-  "Install Evil bindings for Pipelines buffers when Evil is loaded.
-
-Does nothing when Evil is absent, and installs at most once.  This runs
-from the Pipelines major modes rather than at load time, so Evil only has
-to be loaded by the time the first Pipelines buffer is opened."
-  (when (and (featurep 'evil)
-             (not bitbucket-devops-ui--evil-bindings-installed))
-    (setq bitbucket-devops-ui--evil-bindings-installed t)
-    (bitbucket-devops-ui--install-evil-bindings)))
-
-(dolist (hook '(bitbucket-devops-pipelines-history-mode-hook
-                bitbucket-devops-pipelines-details-mode-hook
-                bitbucket-devops-pipelines-log-mode-hook))
-  (add-hook hook #'bitbucket-devops-ui-install-evil-bindings))
 
 (provide 'bitbucket-devops-ui)
 ;;; bitbucket-devops-ui.el ends here

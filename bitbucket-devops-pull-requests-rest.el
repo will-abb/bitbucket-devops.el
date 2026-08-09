@@ -326,7 +326,7 @@ SEGMENTS are extra path components appended to the URL."
         (to (plist-get inline-location :to)))
     (when (string-empty-p path)
       (user-error "Inline comment path cannot be empty"))
-    (unless (not (eq (integerp from) (integerp to)))
+    (when (eq (integerp from) (integerp to))
       (user-error "Inline comment needs exactly one from or to line"))
     (when (and (integerp from) (< from 1))
       (user-error "Inline comment from line must be positive"))

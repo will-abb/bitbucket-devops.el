@@ -55,11 +55,11 @@
 (declare-function bitbucket-devops-pull-requests-watch-comments-stop
                   "bitbucket-devops-pull-requests-watch"
                   (context pull-request-id))
-(declare-function evil-define-key* "evil-core"
+(declare-function evil-define-key* "ext:evil-core"
                   (state keymap key def &rest bindings))
 (declare-function magit-list-local-branch-names "magit-git" ())
 (declare-function magit-list-remote-branch-names "magit-git"
-                  (remote &optional local-names))
+                  (&optional remote relative))
 (declare-function magit-diff-range "magit-diff"
                   (revision-or-range &optional arguments files))
 (declare-function magit-show-commit "magit-diff"
@@ -671,9 +671,9 @@ state is terminal.  Set to nil or 0 to disable unconditional revalidation."
 (defcustom bitbucket-devops-pull-requests-sync-active-count 20
   "Number of newest active pull requests to refetch during list refresh.
 
-Only pull requests whose state is `OPEN', or whose state is unknown, are
-considered active.  Terminal states such as `MERGED', `DECLINED', and
-`SUPERSEDED' are skipped unless they are also covered by
+Only pull requests whose state is OPEN, or whose state is unknown, are
+considered active.  Terminal states such as MERGED, DECLINED, and SUPERSEDED
+are skipped unless they are also covered by
 `bitbucket-devops-pull-requests-sync-always-count'."
   :type '(choice (const :tag "Disable active pull request revalidation" nil)
                  (integer :tag "Newest active pull requests to revalidate"))
@@ -791,7 +791,7 @@ long rows according to the buffer and window's normal wrapping settings."
   (if (or (null timestamp) (string-empty-p timestamp))
       ""
     (condition-case nil
-        (format-time-string "%Y-%m-%d %H:%M" (date-to-time timestamp))
+        (format-time-string "%F %R" (date-to-time timestamp))
       (error timestamp))))
 
 (defun bitbucket-devops-pull-requests-ui--values (page-or-values)
@@ -849,13 +849,13 @@ HELP is used as the hover text for mouse users."
 (defun bitbucket-devops-pull-requests-ui--property-at-point-or-line (property)
   "Return PROPERTY at point or from the current line."
   (or (get-text-property (point) property)
-      (and (> (point) (point-min))
+      (and (not (bobp))
            (get-text-property
             (1- (point))
             property))
       (save-excursion
         (let ((line-end (line-end-position)))
-          (goto-char (line-beginning-position))
+          (beginning-of-line)
           (catch 'value
             (while (< (point) line-end)
               (when-let ((value
@@ -1164,7 +1164,7 @@ PULL-REQUEST-ID when the loaded record does not include links."
   (or (tabulated-list-get-id)
       (save-excursion
         (catch 'id
-          (while (< (point) (point-max))
+          (while (not (eobp))
             (forward-line 1)
             (when-let ((id (tabulated-list-get-id)))
               (throw 'id id)))
@@ -2437,7 +2437,7 @@ An empty answer defaults to yes."
           (unless (member answer '("" "y" "yes" "n" "no"))
             (message "Please answer y or n"))
           (not (member answer '("" "y" "yes" "n" "no")))))
-    (not (null (member answer '("" "y" "yes"))))))
+    (member answer '("" "y" "yes"))))
 
 (defun bitbucket-devops-pull-requests-ui--collect-open-pull-requests
     (context callback &optional next-url collected)
@@ -2710,7 +2710,7 @@ REVIEWER-STRATEGY selects how reviewers are resolved."
           (unless (member answer '("" "y" "yes" "n" "no"))
             (message "Please answer y or n"))
           (not (member answer '("" "y" "yes" "n" "no")))))
-    (not (null (member answer '("" "y" "yes"))))))
+    (member answer '("" "y" "yes"))))
 
 (defun bitbucket-devops-pull-requests-ui--maybe-watch-created
     (context pull-request)
@@ -2828,7 +2828,8 @@ reviewers."
   (setq-local word-wrap t)
   (setq-local line-spacing 0.12)
   (setq-local header-line-format
-              '(:eval (bitbucket-devops-pull-requests-ui--detail-header-line))))
+              '(:eval (bitbucket-devops-pull-requests-ui--detail-header-line)))
+  (bitbucket-devops-pull-requests-ui-install-evil-bindings))
 
 (defvar bitbucket-devops-pull-requests-description-edit-mode-map
   (let ((map (make-sparse-keymap)))
@@ -3646,7 +3647,8 @@ Optional FILE-COUNT is shown in the header when non-nil."
      ("^index .*$" 0 'bitbucket-devops-pull-requests-secondary-face t)
      ("^--- .*$" 0 'bitbucket-devops-pull-requests-removed-face t)
      ("^\\+\\+\\+ .*$" 0 'bitbucket-devops-pull-requests-added-face t))
-   'append))
+   'append)
+  (bitbucket-devops-pull-requests-ui-install-evil-bindings))
 
 (define-derived-mode bitbucket-devops-pull-requests-commits-mode special-mode
   "Bitbucket-PR-Commits"
@@ -3655,7 +3657,8 @@ Optional FILE-COUNT is shown in the header when non-nil."
   (setq-local word-wrap t)
   (setq-local line-spacing 0.1)
   (when (fboundp 'hl-line-mode)
-    (hl-line-mode 1)))
+    (hl-line-mode 1))
+  (bitbucket-devops-pull-requests-ui-install-evil-bindings))
 
 (define-derived-mode bitbucket-devops-pull-requests-activity-mode special-mode
   "Bitbucket-PR-Activity"
@@ -3664,7 +3667,8 @@ Optional FILE-COUNT is shown in the header when non-nil."
   (setq-local word-wrap t)
   (setq-local line-spacing 0.1)
   (when (fboundp 'hl-line-mode)
-    (hl-line-mode 1)))
+    (hl-line-mode 1))
+  (bitbucket-devops-pull-requests-ui-install-evil-bindings))
 
 (defvar bitbucket-devops-pull-requests-ui--applied-keybindings nil
   "Configured keys currently installed in pull request maps.")
@@ -3871,7 +3875,7 @@ When PRESERVE-POINT is non-nil, restore point afterwards."
 (defun bitbucket-devops-pull-requests-ui--commit-property-at-point (property)
   "Return commit PROPERTY at point or immediately before point."
   (or (get-text-property (point) property)
-      (and (> (point) (point-min))
+      (and (not (bobp))
            (get-text-property (1- (point)) property))))
 
 (defun bitbucket-devops-pull-requests-ui--ensure-commit-available (context hash)
@@ -5170,7 +5174,7 @@ calling Bitbucket when the pull request already has the requested state."
   (bitbucket-devops-pull-requests-ui--require-details-context)
   (unless bitbucket-devops-pull-requests-ui--details-pull-request
     (user-error "Pull request details are not loaded yet"))
-  (if (eq (not (not draft))
+  (if (eq draft
           (bitbucket-devops-pull-requests-ui--current-draft-p))
       (message "%s" already-message)
     (bitbucket-devops-pull-requests-ui--update-metadata
@@ -5707,8 +5711,7 @@ When CLOSE-SOURCE-BRANCH is non-nil, delete the source branch after merging."
     (when
         (yes-or-no-p
          (format
-          (concat "Merge %s/%s pull request #%s %s (%s -> %s) "
-                  "using %s? ")
+          "Merge %s/%s pull request #%s %s (%s -> %s) using %s? "
           (plist-get context :workspace)
           (plist-get context :repo-slug)
           pull-request-id
@@ -5755,7 +5758,8 @@ When CLOSE-SOURCE-BRANCH is non-nil, delete the source branch after merging."
   (setq-local line-spacing 0.05)
   (when (fboundp 'hl-line-mode)
     (hl-line-mode 1))
-  (tabulated-list-init-header))
+  (tabulated-list-init-header)
+  (bitbucket-devops-pull-requests-ui-install-evil-bindings))
 
 (defun bitbucket-devops-pull-requests-ui--install-evil-bindings ()
   "Install Evil normal-state bindings for pull request buffers."
@@ -5790,20 +5794,13 @@ When CLOSE-SOURCE-BRANCH is non-nil, delete the source branch after merging."
 (defun bitbucket-devops-pull-requests-ui-install-evil-bindings ()
   "Install Evil bindings for pull request buffers when Evil is loaded.
 
-Does nothing when Evil is absent, and installs at most once.  This runs
-from the pull request major modes rather than at load time, so Evil only
-has to be loaded by the time the first pull request buffer is opened."
+Does nothing when Evil is absent, and installs at most once.  The pull request
+major modes invoke this function when they start, so Evil only has to be loaded
+by the time the first pull request buffer is opened."
   (when (and (featurep 'evil)
              (not bitbucket-devops-pull-requests-ui--evil-bindings-installed))
     (setq bitbucket-devops-pull-requests-ui--evil-bindings-installed t)
     (bitbucket-devops-pull-requests-ui--install-evil-bindings)))
-
-(dolist (hook '(bitbucket-devops-pull-requests-list-mode-hook
-                bitbucket-devops-pull-requests-detail-mode-hook
-                bitbucket-devops-pull-requests-diff-mode-hook
-                bitbucket-devops-pull-requests-commits-mode-hook
-                bitbucket-devops-pull-requests-activity-mode-hook))
-  (add-hook hook #'bitbucket-devops-pull-requests-ui-install-evil-bindings))
 
 ;;;###autoload
 (defun bitbucket-devops-pull-requests-list ()

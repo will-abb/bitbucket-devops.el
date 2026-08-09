@@ -8,47 +8,47 @@
 (require 'ert)
 (require 'bitbucket-devops)
 
-(ert-deftest bitbucket-devops-dispatch-exposes-q-quit-suffix ()
+(ert-deftest bitbucket-devops-exposes-q-quit-suffix ()
   (should
    (equal
-    (transient-get-suffix 'bitbucket-devops-dispatch "q")
+    (transient-get-suffix 'bitbucket-devops "q")
     (transient-get-suffix
-     'bitbucket-devops-dispatch #'transient-quit-one))))
+     'bitbucket-devops #'transient-quit-one))))
 
-(ert-deftest bitbucket-devops-dispatch-removes-command-panel-before-setup ()
+(ert-deftest bitbucket-devops-removes-command-panel-before-setup ()
   (let (observed)
     (cl-letf (((symbol-function 'bitbucket-devops-ui--delete-command-panel)
                (lambda () (push 'delete observed)))
               ((symbol-function 'transient-setup)
                (lambda (prefix &rest _args)
                  (push (list 'setup prefix) observed))))
-      (call-interactively #'bitbucket-devops-dispatch))
+      (call-interactively #'bitbucket-devops))
     (should
      (equal observed
-            '((setup bitbucket-devops-dispatch) delete)))))
+            '((setup bitbucket-devops) delete)))))
 
-(ert-deftest bitbucket-devops-dispatch-exposes-only-repository-actions ()
+(ert-deftest bitbucket-devops-exposes-only-repository-actions ()
   (dolist (key '("h" "l" "c" "R" "r" "a" "m" "b" "o" "t" "x" "q"))
-    (should (transient-get-suffix 'bitbucket-devops-dispatch key)))
+    (should (transient-get-suffix 'bitbucket-devops key)))
   (dolist (key '("p" "P" "u" "v" "w" "W" "d" "s"))
     (should-error
-     (transient-get-suffix 'bitbucket-devops-dispatch key))))
+     (transient-get-suffix 'bitbucket-devops key))))
 
-(ert-deftest bitbucket-devops-dispatch-run-opens-configured-pipeline-picker ()
+(ert-deftest bitbucket-devops-run-opens-configured-pipeline-picker ()
   (should
    (equal
-    (transient-get-suffix 'bitbucket-devops-dispatch "r")
+    (transient-get-suffix 'bitbucket-devops "r")
     (transient-get-suffix
-     'bitbucket-devops-dispatch
+     'bitbucket-devops
      #'bitbucket-devops-pipelines-run-configured))))
 
 (ert-deftest bitbucket-devops-pipelines-removes-direct-branch-run-command ()
   (should-not (fboundp 'bitbucket-devops-pipelines-run)))
 
-(ert-deftest bitbucket-devops-dispatch-uses-at-most-three-columns ()
+(ert-deftest bitbucket-devops-uses-at-most-three-columns ()
   (dotimes (column 3)
-    (should (transient-get-suffix 'bitbucket-devops-dispatch (list 0 column))))
-  (should-error (transient-get-suffix 'bitbucket-devops-dispatch '(0 3))))
+    (should (transient-get-suffix 'bitbucket-devops (list 0 column))))
+  (should-error (transient-get-suffix 'bitbucket-devops '(0 3))))
 
 (ert-deftest bitbucket-devops-pipelines-toggle-auto-download-logs-toggles-live-value ()
   (let ((bitbucket-devops-pipelines-auto-download-logs nil))

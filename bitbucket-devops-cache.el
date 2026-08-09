@@ -207,7 +207,7 @@ or the file cannot be parsed."
   (plist-put
    cache
    :updated-at
-   (format-time-string "%Y-%m-%dT%H:%M:%SZ" nil t)))
+   (format-time-string "%FT%TZ" nil t)))
 
 (defun bitbucket-devops-cache-merge-pipelines (context pipelines)
   "Merge PIPELINES into CONTEXT's persistent cache.
@@ -320,7 +320,7 @@ Return all cached pull requests sorted by most recent update."
             (plist-put
              cache
              :reviewer-users-updated-at
-             (format-time-string "%Y-%m-%dT%H:%M:%SZ" nil t)))
+             (format-time-string "%FT%TZ" nil t)))
       (bitbucket-devops-cache-write
        context
        (bitbucket-devops-cache--touch cache)))))

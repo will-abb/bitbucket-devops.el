@@ -560,11 +560,9 @@ key."
     (context pull-request-id)
   "Return non-nil when comments are being watched for PULL-REQUEST-ID.
 CONTEXT identifies the Bitbucket repository."
-  (not
-   (null
-    (gethash
-     (bitbucket-devops-pull-requests-watch--make-key context pull-request-id)
-     bitbucket-devops-pull-requests-watch--records))))
+  (gethash
+   (bitbucket-devops-pull-requests-watch--make-key context pull-request-id)
+   bitbucket-devops-pull-requests-watch--records))
 
 ;;;###autoload
 (defun bitbucket-devops-pull-requests-watch-comments-stop

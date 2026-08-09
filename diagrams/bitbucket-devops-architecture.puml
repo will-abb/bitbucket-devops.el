@@ -92,7 +92,7 @@ package "Bitbucket Cloud" as bitbucket_cloud {
   api -right-> resources : resources
 }
 
-user -down-> dispatch : M-x bitbucket-devops-dispatch
+user -down-> dispatch : M-x bitbucket-devops
 
 dispatch -down-> pipeline_area : pipeline and tracking commands
 dispatch -down-> pr_area : pull request commands

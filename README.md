@@ -60,7 +60,7 @@ The package does not install Magit key bindings. Bind the transient dispatch in
 your own configuration if desired:
 
 ```elisp
-(global-set-key (kbd "C-c b") #'bitbucket-devops-dispatch)
+(global-set-key (kbd "C-c b") #'bitbucket-devops)
 ```
 
 ## Setup
@@ -90,7 +90,7 @@ permission matrix, and per-repository rules.
 
 ## Usage
 
-Run `M-x bitbucket-devops-dispatch` from any buffer inside a Bitbucket
+Run `M-x bitbucket-devops` from any buffer inside a Bitbucket
 repository for the unified Pipelines and pull request menu.
 
 | Key | Command |

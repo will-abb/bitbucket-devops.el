@@ -23,6 +23,13 @@ interpreted and byte-compiled builds."
      (goto-char (point-min))
      ,@body))
 
+(ert-deftest bitbucket-devops-pipelines-mutate-registers-savehist-variables ()
+  (dolist (variable
+           '(bitbucket-devops-pipelines-last-branch
+             bitbucket-devops-pipelines-last-custom-selector
+             bitbucket-devops-pipelines-last-variable-metadata))
+    (should (memq variable savehist-additional-variables))))
+
 (ert-deftest bitbucket-devops-pipelines-mutate-branch-body-builds-default-target ()
   (should
    (equal

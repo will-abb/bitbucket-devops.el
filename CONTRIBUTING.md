@@ -15,9 +15,13 @@ make load-test
 make test
 make compile
 make lint
+make checkdoc
+make check-declare
 ```
 
-`make lint` requires `package-lint`.
+`make lint` requires `package-lint`.  `make check-declare` requires the package
+dependencies to be installed as source packages so it can validate their
+function definitions and argument lists.
 
 ## Tests
 

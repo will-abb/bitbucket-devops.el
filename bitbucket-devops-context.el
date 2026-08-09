@@ -28,12 +28,13 @@
 ;;; Code:
 
 (require 'subr-x)
+(require 'rx)
 (require 'magit nil t)
 
 (declare-function magit-get-current-branch "magit-git" ())
 (declare-function magit-git-string "magit-git" (&rest args))
 (declare-function magit-rev-parse "magit-git" (&rest args))
-(declare-function magit-toplevel "magit" (&optional directory))
+(declare-function magit-toplevel "magit-git" (&optional directory))
 
 (defgroup bitbucket-devops nil
   "Work with Bitbucket Cloud development workflows."
@@ -63,7 +64,7 @@ takes precedence over parsing `bitbucket-devops-remote'."
   "Return non-nil when SEGMENT is a valid parsed SSH remote path segment."
   (and (not (string-empty-p segment))
        (not (member segment '("." "..")))
-       (not (string-match-p "[/[:space:]?#\\\\]" segment))))
+       (not (string-match-p (rx (any "/" space "?" "#" "\\")) segment))))
 
 (defun bitbucket-devops-context-parse-ssh-remote (remote)
   "Return the Bitbucket Cloud repository identity parsed from REMOTE.

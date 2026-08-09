@@ -5,6 +5,22 @@ All notable changes to `bitbucket-devops.el` will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses semantic versioning.
 
+## [Unreleased]
+
+## [3.0.1] - 2026-08-09
+
+### Changed
+
+- Renamed the primary transient command to `bitbucket-devops`.
+- Defined pipeline mode bindings with their keymaps and initialized optional
+  Evil integration from the relevant modes instead of package-load hooks.
+
+### Fixed
+
+- Resolved MELPA review findings from byte compilation, `melpazoid`, and
+  `check-declare`, including Custom choice labels, predicate idioms, Savehist
+  registration, and external function declarations.
+
 ## [3.0.0] - 2026-08-01
 
 ### Added

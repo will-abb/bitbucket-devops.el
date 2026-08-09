@@ -499,7 +499,7 @@
         (progn
           (with-current-buffer buffer
             (bitbucket-devops-pipelines-watch-list-mode)
-            (if (fboundp 'bitbucket-devops-dispatch)
+            (if (fboundp 'bitbucket-devops)
                 (should
                  (string-match-p
                   "- Back"

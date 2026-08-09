@@ -29,6 +29,7 @@
 
 (require 'subr-x)
 (require 'seq)
+(require 'savehist)
 (require 'tabulated-list)
 (require 'bitbucket-devops-context)
 (require 'bitbucket-devops-rest)
@@ -41,7 +42,6 @@
 (defvar bitbucket-devops-ui--details-pipeline-uuid)
 (defvar bitbucket-devops-ui--details-pipeline)
 (defvar bitbucket-devops-ui--details-steps)
-(defvar savehist-additional-variables)
 (declare-function bitbucket-devops-pipelines-details-refresh
                   "bitbucket-devops-ui"
                   ())
@@ -98,23 +98,14 @@ This always stores variable keys.  Values are stored only when
 `bitbucket-devops-pipelines-remember-variable-values' is non-nil.")
 
 (defun bitbucket-devops-pipelines-mutate--register-savehist-variables ()
-  "Register remembered trigger settings with Savehist.
-
-Called when `savehist-mode' is enabled, so the remembered branch, custom
-pipeline selector, and variable metadata survive across sessions."
+  "Register remembered trigger settings with Savehist."
   (dolist (variable
            '(bitbucket-devops-pipelines-last-branch
              bitbucket-devops-pipelines-last-custom-selector
              bitbucket-devops-pipelines-last-variable-metadata))
     (add-to-list 'savehist-additional-variables variable)))
 
-(add-hook 'savehist-mode-hook
-          #'bitbucket-devops-pipelines-mutate--register-savehist-variables)
-
-;; `savehist-mode' may already be on by the time this file loads, in which
-;; case the hook above will not run on its own.
-(when (bound-and-true-p savehist-mode)
-  (bitbucket-devops-pipelines-mutate--register-savehist-variables))
+(bitbucket-devops-pipelines-mutate--register-savehist-variables)
 
 (defun bitbucket-devops-pipelines-mutate--pipeline-state-name (pipeline)
   "Return PIPELINE's state name."
@@ -507,7 +498,7 @@ triggers because Bitbucket resolves branch matching server-side."
 
 (defun bitbucket-devops-pipelines-mutate--display-value (value)
   "Return VALUE as prompt text, or nil when VALUE is nil."
-  (unless (null value)
+  (when value
     (format "%s" value)))
 
 (defun bitbucket-devops-pipelines-mutate--variable-key (variable)
@@ -549,7 +540,7 @@ triggers because Bitbucket resolves branch matching server-side."
            (plist-get
             (bitbucket-devops-pipelines-mutate--remembered-variable key)
             :value)))
-      (unless (null value)
+      (when value
         (let ((value (bitbucket-devops-pipelines-mutate--display-value value))
               (allowed-values
                (mapcar #'bitbucket-devops-pipelines-mutate--display-value

@@ -6,7 +6,7 @@
 ;; Assisted-by: Codex:gpt-5.5-codex
 ;; Assisted-by: Claude:claude-opus-5
 ;; Maintainer: Will Bosch-Bello <williamsbosch@gmail.com>
-;; Version: 3.0.0
+;; Version: 3.0.1
 ;; Package-Requires: ((emacs "29.1") (magit "4.0.0") (markdown-mode "2.6") (transient "0.3.0") (yaml "1.2.3"))
 ;; Keywords: tools, vc
 ;; URL: https://github.com/will-abb/bitbucket-devops.el
@@ -38,7 +38,7 @@
 ;; review actions, reviewer management, inline comments and replies, and
 ;; pull request creation and decline.
 ;;
-;; Start from the `bitbucket-devops-dispatch' transient menu, or call
+;; Start from the `bitbucket-devops' transient menu, or call
 ;; `bitbucket-devops-pipelines-history' and
 ;; `bitbucket-devops-pull-requests-list' directly.
 ;;
@@ -79,8 +79,8 @@
                "enabled"
              "disabled")))
 
-;;;###autoload(autoload 'bitbucket-devops-dispatch "bitbucket-devops" nil t)
-(transient-define-prefix bitbucket-devops-dispatch ()
+;;;###autoload(autoload 'bitbucket-devops "bitbucket-devops" nil t)
+(transient-define-prefix bitbucket-devops ()
   "Work with Bitbucket Cloud Pipelines and pull requests."
   [["Pipelines"
     ("h" "History" bitbucket-devops-pipelines-history)
@@ -100,7 +100,7 @@
     ("q" "Quit" transient-quit-one)]]
   (interactive)
   (bitbucket-devops-ui--delete-command-panel)
-  (transient-setup 'bitbucket-devops-dispatch))
+  (transient-setup 'bitbucket-devops))
 
 (provide 'bitbucket-devops)
 ;;; bitbucket-devops.el ends here

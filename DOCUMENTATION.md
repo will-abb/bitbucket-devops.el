@@ -121,7 +121,7 @@ for this package.
 
 ### Dispatch
 
-Run `M-x bitbucket-devops-dispatch` for the unified Pipelines and pull request
+Run `M-x bitbucket-devops` for the unified Pipelines and pull request
 command menu.
 
 | Key | Command |
