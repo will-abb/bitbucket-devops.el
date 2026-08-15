@@ -7,6 +7,14 @@ and this project uses semantic versioning.
 
 ## [Unreleased]
 
+## [3.0.2] - 2026-08-23
+
+### Changed
+
+- Reorganized internal module dependencies into an acyclic stack and removed
+  package-internal forward declarations. Cross-feature UI updates now use an
+  explicit watcher-change hook and buffer-local command-key callbacks.
+
 ## [3.0.1] - 2026-08-09
 
 ### Changed

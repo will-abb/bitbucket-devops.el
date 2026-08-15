@@ -745,5 +745,19 @@
     (lookup-key bitbucket-devops-pipelines-watch-list-mode-map (kbd "?"))
     #'bitbucket-devops-ui-show-command-panel)))
 
+(ert-deftest bitbucket-devops-pipelines-watch-list-subscribes-while-live ()
+  (let ((bitbucket-devops-pull-requests-watch-changed-hook nil)
+        (buffer (generate-new-buffer " *bitbucket-watchers-hook-test*")))
+    (with-current-buffer buffer
+      (bitbucket-devops-pipelines-watch-list-mode)
+      (should
+       (memq #'bitbucket-devops-pipelines-watch--render-list-buffer
+             bitbucket-devops-pull-requests-watch-changed-hook))
+      (fundamental-mode))
+    (should-not
+     (memq #'bitbucket-devops-pipelines-watch--render-list-buffer
+           bitbucket-devops-pull-requests-watch-changed-hook))
+    (kill-buffer buffer)))
+
 (provide 'bitbucket-devops-pipelines-watch-test)
 ;;; bitbucket-devops-pipelines-watch-test.el ends here

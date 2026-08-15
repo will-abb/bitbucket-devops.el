@@ -145,5 +145,23 @@ The default starts pipeline discovery for the pushed commit."
       (bitbucket-devops-pipelines-magit--enable)
     (bitbucket-devops-pipelines-magit--disable)))
 
+;;;###autoload
+(defun bitbucket-devops-pipelines-toggle-magit-push-watch ()
+  "Toggle automatic pipeline tracking after successful Magit pushes."
+  (interactive)
+  (bitbucket-devops-pipelines-magit-push-watch-mode
+   (if bitbucket-devops-pipelines-magit-push-watch-mode -1 1))
+  (message "Bitbucket pipeline Magit push tracking %s"
+           (if bitbucket-devops-pipelines-magit-push-watch-mode
+               "enabled"
+             "disabled")))
+
+;;;###autoload
+(defun bitbucket-devops-pipelines-watch-toggle-push-tracking ()
+  "Toggle automatic Magit push tracking and refresh the watcher list."
+  (interactive)
+  (bitbucket-devops-pipelines-toggle-magit-push-watch)
+  (bitbucket-devops-pipelines-watch--render-list-buffer))
+
 (provide 'bitbucket-devops-pipelines-magit)
 ;;; bitbucket-devops-pipelines-magit.el ends here

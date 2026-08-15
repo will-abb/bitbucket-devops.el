@@ -37,14 +37,7 @@
 (require 'bitbucket-devops-pipelines-yaml)
 (require 'bitbucket-devops-pull-requests)
 (require 'bitbucket-devops-pull-requests-rest)
-
-(defvar bitbucket-devops-ui--context)
-(defvar bitbucket-devops-ui--details-pipeline-uuid)
-(defvar bitbucket-devops-ui--details-pipeline)
-(defvar bitbucket-devops-ui--details-steps)
-(declare-function bitbucket-devops-pipelines-details-refresh
-                  "bitbucket-devops-ui"
-                  ())
+(require 'bitbucket-devops-ui)
 
 (defcustom bitbucket-devops-pipelines-production-branches '("main" "master")
   "Branch names that require confirmation before triggering a pipeline."
@@ -841,6 +834,21 @@ free-form runtime variables that `bitbucket-pipelines.yml' does not declare."
        nil
        (bitbucket-devops-pipelines-yaml-option-deployments option)))))
 
+;;;###autoload
+(defun bitbucket-devops-pipelines-history-run-configured (&optional additional)
+  "Prompt for and trigger a configured pipeline from a history buffer.
+
+With a prefix argument, or when ADDITIONAL is non-nil, also prompt for
+free-form runtime variables that `bitbucket-pipelines.yml' does not declare."
+  (interactive "P")
+  (unless bitbucket-devops-ui--context
+    (user-error "This buffer has no Bitbucket pipeline context"))
+  (bitbucket-devops-pipelines-run-configured
+   (or (plist-get bitbucket-devops-ui--context :root)
+       default-directory)
+   additional))
+
+;;;###autoload
 (defun bitbucket-devops-pipelines-rerun (&optional additional)
   "Trigger a new run using the current details buffer pipeline target.
 
@@ -877,6 +885,7 @@ free-form runtime variables beyond the keys remembered from the last trigger."
      nil
      deployments)))
 
+;;;###autoload
 (defun bitbucket-devops-pipelines-stop ()
   "Stop the pipeline displayed in the current details buffer."
   (interactive)
@@ -896,6 +905,7 @@ free-form runtime variables beyond the keys remembered from the last trigger."
                     (plist-get request-error :message))
          (message "Stopped Bitbucket pipeline %s" pipeline-uuid))))))
 
+;;;###autoload
 (defun bitbucket-devops-pipelines-continue ()
   "Continue the pending manual step selected in the current details buffer."
   (interactive)

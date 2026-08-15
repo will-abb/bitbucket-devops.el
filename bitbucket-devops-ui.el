@@ -41,25 +41,6 @@
 (require 'bitbucket-devops-context)
 (require 'bitbucket-devops-rest)
 
-;; `transient-define-prefix' generates this function.
-(declare-function bitbucket-devops "bitbucket-devops" () t)
-(declare-function bitbucket-devops-pipelines-run-configured
-                  "bitbucket-devops-pipelines-mutate"
-                  (&optional directory additional))
-(declare-function bitbucket-devops-pipelines-watch-pipeline
-                  "bitbucket-devops-pipelines-watch"
-                  (context pipeline-uuid))
-(declare-function bitbucket-devops-pipelines-rerun
-                  "bitbucket-devops-pipelines-mutate"
-                  (&optional additional))
-(declare-function bitbucket-devops-pipelines-stop "bitbucket-devops-pipelines-mutate" ())
-(declare-function bitbucket-devops-pipelines-continue "bitbucket-devops-pipelines-mutate" ())
-(declare-function bitbucket-devops-pull-requests-ui-key-for-command
-                  "bitbucket-devops-pull-requests-ui"
-                  (command))
-(declare-function bitbucket-devops-pull-requests-ui-keys-for-command
-                  "bitbucket-devops-pull-requests-ui"
-                  (command))
 (declare-function evil-define-key* "ext:evil-core"
                   (state keymap key def &rest bindings))
 (declare-function magit-list-local-branch-names "magit-git" ())
@@ -106,6 +87,12 @@ The value is `all' or a branch name string.")
 
 (defvar-local bitbucket-devops-ui--previous-buffer nil
   "Prior Bitbucket DevOps UI buffer for local back navigation.")
+
+(defvar-local bitbucket-devops-ui--key-for-command-function nil
+  "Function used to find one configured key for a UI command.")
+
+(defvar-local bitbucket-devops-ui--keys-for-command-function nil
+  "Function used to find every configured key for a UI command.")
 
 (defvar bitbucket-devops-ui--commit-cache (make-hash-table :test #'equal)
   "Full Bitbucket commit records keyed by workspace, repository, and hash.")
@@ -670,11 +657,11 @@ PIPELINE is the pipeline owning STEP."
                 #'bitbucket-devops-pipelines-copy-browser-url-at-point)
     (define-key map (kbd "o") #'bitbucket-devops-pipelines-browse)
     (define-key map (kbd "O") #'bitbucket-devops-pipelines-browse-repository)
-    (define-key map (kbd "t") #'bitbucket-devops-pipelines-watch-selected)
+    (define-key map (kbd "t") 'bitbucket-devops-pipelines-watch-selected)
     (define-key map (kbd "d")
                 #'bitbucket-devops-pipelines-history-download-logs)
     (define-key map (kbd "R")
-                #'bitbucket-devops-pipelines-history-run-configured)
+                'bitbucket-devops-pipelines-history-run-configured)
     (define-key map (kbd "TAB")
                 #'bitbucket-devops-pipelines-history-expand-column-at-point)
     (define-key map (kbd "-") #'bitbucket-devops-ui-back)
@@ -697,10 +684,10 @@ PIPELINE is the pipeline owning STEP."
     (define-key map (kbd "d")
                 #'bitbucket-devops-pipelines-download-selected-log)
     (define-key map (kbd "D") #'bitbucket-devops-pipelines-download-logs)
-    (define-key map (kbd "t") #'bitbucket-devops-pipelines-watch-selected)
-    (define-key map (kbd "R") #'bitbucket-devops-pipelines-rerun)
-    (define-key map (kbd "c") #'bitbucket-devops-pipelines-continue)
-    (define-key map (kbd "s") #'bitbucket-devops-pipelines-stop)
+    (define-key map (kbd "t") 'bitbucket-devops-pipelines-watch-selected)
+    (define-key map (kbd "R") 'bitbucket-devops-pipelines-rerun)
+    (define-key map (kbd "c") 'bitbucket-devops-pipelines-continue)
+    (define-key map (kbd "s") 'bitbucket-devops-pipelines-stop)
     (define-key map (kbd "-") #'bitbucket-devops-ui-back)
     (define-key map (kbd "q") #'bitbucket-devops-ui-quit)
     (define-key map (kbd "?") #'bitbucket-devops-ui-show-command-panel)
@@ -730,9 +717,9 @@ PIPELINE is the pipeline owning STEP."
    (kbd "S-<return>") #'bitbucket-devops-pipelines-copy-browser-url-at-point
    (kbd "o") #'bitbucket-devops-pipelines-browse
    (kbd "O") #'bitbucket-devops-pipelines-browse-repository
-   (kbd "t") #'bitbucket-devops-pipelines-watch-selected
+   (kbd "t") 'bitbucket-devops-pipelines-watch-selected
    (kbd "d") #'bitbucket-devops-pipelines-history-download-logs
-   (kbd "R") #'bitbucket-devops-pipelines-history-run-configured
+   (kbd "R") 'bitbucket-devops-pipelines-history-run-configured
    (kbd "TAB") #'bitbucket-devops-pipelines-history-expand-column-at-point
    (kbd "-") #'bitbucket-devops-ui-back
    (kbd "q") #'bitbucket-devops-ui-quit
@@ -748,10 +735,10 @@ PIPELINE is the pipeline owning STEP."
    (kbd "O") #'bitbucket-devops-pipelines-browse-repository
    (kbd "d") #'bitbucket-devops-pipelines-download-selected-log
    (kbd "D") #'bitbucket-devops-pipelines-download-logs
-   (kbd "t") #'bitbucket-devops-pipelines-watch-selected
-   (kbd "R") #'bitbucket-devops-pipelines-rerun
-   (kbd "c") #'bitbucket-devops-pipelines-continue
-   (kbd "s") #'bitbucket-devops-pipelines-stop
+   (kbd "t") 'bitbucket-devops-pipelines-watch-selected
+   (kbd "R") 'bitbucket-devops-pipelines-rerun
+   (kbd "c") 'bitbucket-devops-pipelines-continue
+   (kbd "s") 'bitbucket-devops-pipelines-stop
    (kbd "-") #'bitbucket-devops-ui-back
    (kbd "q") #'bitbucket-devops-ui-quit
    (kbd "?") #'bitbucket-devops-ui-show-command-panel)
@@ -943,16 +930,17 @@ Pad the returned cell to WIDTH columns when WIDTH is non-nil."
 
 (defun bitbucket-devops-ui--pull-request-key (command fallback)
   "Return configured pull request key for COMMAND or FALLBACK."
-  (or (and (fboundp 'bitbucket-devops-pull-requests-ui-key-for-command)
-           (bitbucket-devops-pull-requests-ui-key-for-command command))
+  (or (and bitbucket-devops-ui--key-for-command-function
+           (funcall bitbucket-devops-ui--key-for-command-function command))
       fallback))
 
 (defun bitbucket-devops-ui--pull-request-command-keys (command fallback)
   "Return configured pull request keys for COMMAND as a display label.
 
 Use FALLBACK when no configured key is available."
-  (if (fboundp 'bitbucket-devops-pull-requests-ui-keys-for-command)
-      (let ((keys (bitbucket-devops-pull-requests-ui-keys-for-command command)))
+  (if bitbucket-devops-ui--keys-for-command-function
+      (let ((keys
+             (funcall bitbucket-devops-ui--keys-for-command-function command)))
         (if keys
             (string-join keys "/")
           fallback))
@@ -1483,8 +1471,8 @@ is the package UI screen used by `bitbucket-devops-ui-back'."
     (bitbucket-devops-ui--display-buffer
      bitbucket-devops-ui--previous-buffer
      t))
-   ((fboundp 'bitbucket-devops)
-    (call-interactively #'bitbucket-devops))
+   ((commandp 'bitbucket-devops)
+    (command-execute 'bitbucket-devops))
    (t
     (setq-local bitbucket-devops-ui--previous-buffer nil)
     (user-error "No previous Bitbucket DevOps screen is available"))))
@@ -2557,37 +2545,6 @@ GENERATION guards against stale asynchronous responses."
     (unless pipeline-uuid
       (user-error "No Bitbucket pipeline is selected"))
     (bitbucket-devops-pipelines-details bitbucket-devops-ui--context pipeline-uuid)))
-
-(defun bitbucket-devops-pipelines-history-run-configured (&optional additional)
-  "Prompt for and trigger a configured pipeline from a history buffer.
-
-With a prefix argument, or when ADDITIONAL is non-nil, also prompt for
-free-form runtime variables that `bitbucket-pipelines.yml' does not declare."
-  (interactive "P")
-  (unless bitbucket-devops-ui--context
-    (user-error "This buffer has no Bitbucket pipeline context"))
-  (unless (fboundp 'bitbucket-devops-pipelines-run-configured)
-    (require 'bitbucket-devops-pipelines-mutate))
-  (bitbucket-devops-pipelines-run-configured
-   (or (plist-get bitbucket-devops-ui--context :root)
-       default-directory)
-   additional))
-
-(defun bitbucket-devops-pipelines-watch-selected ()
-  "Watch the selected pipeline from a history or details buffer."
-  (interactive)
-  (let ((pipeline-uuid
-         (cond
-          ((derived-mode-p 'bitbucket-devops-pipelines-details-mode)
-           bitbucket-devops-ui--details-pipeline-uuid)
-          ((derived-mode-p 'bitbucket-devops-pipelines-history-mode)
-           (tabulated-list-get-id)))))
-    (unless (and bitbucket-devops-ui--context pipeline-uuid)
-      (user-error "No Bitbucket pipeline is selected"))
-    (require 'bitbucket-devops-pipelines-watch)
-    (bitbucket-devops-pipelines-watch-pipeline
-     bitbucket-devops-ui--context
-     pipeline-uuid)))
 
 (defun bitbucket-devops-pipelines-browse (&optional copy)
   "Open the current Bitbucket pipeline in a browser.
