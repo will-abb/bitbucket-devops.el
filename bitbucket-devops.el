@@ -6,7 +6,7 @@
 ;; Assisted-by: Codex:gpt-5.5-codex
 ;; Assisted-by: Claude:claude-opus-5
 ;; Maintainer: Will Bosch-Bello <williamsbosch@gmail.com>
-;; Version: 3.0.1
+;; Version: 3.0.2
 ;; Package-Requires: ((emacs "29.1") (magit "4.0.0") (markdown-mode "2.6") (transient "0.3.0") (yaml "1.2.3"))
 ;; Keywords: tools, vc
 ;; URL: https://github.com/will-abb/bitbucket-devops.el
@@ -66,16 +66,6 @@
         (not bitbucket-devops-pipelines-auto-download-logs))
   (message "Bitbucket pipeline auto-download logs %s"
            (if bitbucket-devops-pipelines-auto-download-logs
-               "enabled"
-             "disabled")))
-
-(defun bitbucket-devops-pipelines-toggle-magit-push-watch ()
-  "Toggle automatic pipeline tracking after successful Magit pushes."
-  (interactive)
-  (bitbucket-devops-pipelines-magit-push-watch-mode
-   (if bitbucket-devops-pipelines-magit-push-watch-mode -1 1))
-  (message "Bitbucket pipeline Magit push tracking %s"
-           (if bitbucket-devops-pipelines-magit-push-watch-mode
                "enabled"
              "disabled")))
 

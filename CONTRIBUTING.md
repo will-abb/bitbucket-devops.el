@@ -23,6 +23,22 @@ make check-declare
 dependencies to be installed as source packages so it can validate their
 function definitions and argument lists.
 
+## Module Dependencies
+
+Keep dependencies directed from higher-level features toward lower-level
+services. The intended order is:
+
+1. Repository context, cache, REST, YAML, and pull request data/REST modules.
+2. Pipeline UI and pull request comment watching.
+3. Pipeline watching, Magit integration, and pipeline mutation commands.
+4. Pull request UI.
+5. The main transient entry point.
+
+Do not add package-internal `declare-function` forms to work around load-order
+problems. Move an interactive command to the module that owns its dependencies,
+add an explicit `require` in the higher layer, or use a narrow hook/callback
+when a lower layer only needs to announce an event.
+
 ## Tests
 
 The default suite is offline and should not require Bitbucket credentials or

@@ -39,8 +39,6 @@
 (declare-function notifications-notify "notifications" (&rest params))
 (declare-function evil-define-key* "ext:evil-core"
                   (state keymap key def &rest bindings))
-(declare-function bitbucket-devops-pipelines-toggle-magit-push-watch "bitbucket-devops")
-(defvar bitbucket-devops-pipelines-magit-push-watch-mode)
 
 (defcustom bitbucket-devops-pipelines-poll-interval 15
   "Seconds between successful Bitbucket pipeline watcher polls."
@@ -137,7 +135,7 @@ fall back to `message' otherwise."
 (defvar bitbucket-devops-pipelines-watch-list-mode-map
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map special-mode-map)
-    (define-key map (kbd "m") #'bitbucket-devops-pipelines-watch-toggle-push-tracking)
+    (define-key map (kbd "m") 'bitbucket-devops-pipelines-watch-toggle-push-tracking)
     (define-key map (kbd "x") #'bitbucket-devops-pipelines-stop-watching-at-point)
     (define-key map (kbd "-") #'bitbucket-devops-ui-back)
     (define-key map (kbd "q") #'bitbucket-devops-ui-quit)
@@ -150,7 +148,7 @@ fall back to `message' otherwise."
   (evil-define-key*
    'normal
    bitbucket-devops-pipelines-watch-list-mode-map
-   (kbd "m") #'bitbucket-devops-pipelines-watch-toggle-push-tracking
+   (kbd "m") 'bitbucket-devops-pipelines-watch-toggle-push-tracking
    (kbd "x") #'bitbucket-devops-pipelines-stop-watching-at-point
    (kbd "-") #'bitbucket-devops-ui-back
    (kbd "q") #'bitbucket-devops-ui-quit
@@ -173,7 +171,13 @@ the time the list is first opened."
 (define-derived-mode bitbucket-devops-pipelines-watch-list-mode special-mode
   "Bitbucket-Watchers"
   "Major mode used to display active Bitbucket watchers."
-  (bitbucket-devops-pipelines-watch-install-evil-bindings))
+  (bitbucket-devops-pipelines-watch-install-evil-bindings)
+  (add-hook 'bitbucket-devops-pull-requests-watch-changed-hook
+            #'bitbucket-devops-pipelines-watch--render-list-buffer)
+  (add-hook 'change-major-mode-hook
+            #'bitbucket-devops-pipelines-watch--remove-pr-change-hook nil t)
+  (add-hook 'kill-buffer-hook
+            #'bitbucket-devops-pipelines-watch--remove-pr-change-hook nil t))
 
 (defvar bitbucket-devops-pipelines-watch-mode-line
   '(:eval (bitbucket-devops-pipelines-watch-mode-line-string))
@@ -351,14 +355,6 @@ the time the list is first opened."
        (bitbucket-devops-pull-requests-watch--r-failures record)
        error)
     "active"))
-
-(defun bitbucket-devops-pipelines-watch-toggle-push-tracking ()
-  "Toggle automatic Magit push tracking and refresh the watcher list."
-  (interactive)
-  (unless (fboundp 'bitbucket-devops-pipelines-toggle-magit-push-watch)
-    (user-error "Bitbucket Pipelines dispatch is not loaded"))
-  (bitbucket-devops-pipelines-toggle-magit-push-watch)
-  (bitbucket-devops-pipelines-watch--render-list-buffer))
 
 (defun bitbucket-devops-pipelines-watch--render-list-buffer ()
   "Refresh the watcher list buffer when it exists."
@@ -560,6 +556,11 @@ the time the list is first opened."
                         t))))
             (goto-char (prop-match-beginning match))
           (goto-char (min old-point (point-max))))))))
+
+(defun bitbucket-devops-pipelines-watch--remove-pr-change-hook ()
+  "Stop refreshing the watcher list after its buffer is killed."
+  (remove-hook 'bitbucket-devops-pull-requests-watch-changed-hook
+               #'bitbucket-devops-pipelines-watch--render-list-buffer))
 
 (defun bitbucket-devops-pipelines-watch--update-mode-line ()
   "Add or remove the aggregate watcher mode-line entry."
@@ -989,6 +990,22 @@ Return the active watcher key."
     (bitbucket-devops-pipelines-watch--update-mode-line)
     (bitbucket-devops-pipelines-watch--poll key)
     key))
+
+;;;###autoload
+(defun bitbucket-devops-pipelines-watch-selected ()
+  "Watch the selected pipeline from a history or details buffer."
+  (interactive)
+  (let ((pipeline-uuid
+         (cond
+          ((derived-mode-p 'bitbucket-devops-pipelines-details-mode)
+           bitbucket-devops-ui--details-pipeline-uuid)
+          ((derived-mode-p 'bitbucket-devops-pipelines-history-mode)
+           (tabulated-list-get-id)))))
+    (unless (and bitbucket-devops-ui--context pipeline-uuid)
+      (user-error "No Bitbucket pipeline is selected"))
+    (bitbucket-devops-pipelines-watch-pipeline
+     bitbucket-devops-ui--context
+     pipeline-uuid)))
 
 (defun bitbucket-devops-pipelines-watch-commit (context)
   "Discover and watch the pipeline for the captured commit in CONTEXT.

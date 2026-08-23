@@ -46,25 +46,44 @@ actor "Emacs User" as user
 
 rectangle "bitbucket-devops.el\n==Transient Dispatch\npipelines | pull requests | tracking" <<Entry>> as dispatch
 
+note right of dispatch
+  Internal dependency order (low to high):
+  shared/domain modules
+  -> pipeline UI + PR watcher
+  -> pipeline watcher
+  -> mutation + Magit integration
+  -> pull request UI
+  -> transient dispatch
+
+  The require graph is acyclic. Package-internal
+  forward declarations are not used.
+end note
+
 package "Pipeline Feature Area" as pipeline_area {
-  rectangle "Pipeline UI\n==bitbucket-devops-ui.el\nhistory | details | logs\ncommand panel | fullscreen" <<Feature>> as pipeline_ui
-  rectangle "Pipeline Mutations\n==bitbucket-devops-pipelines-mutate.el\nrun configured | PR selector\nrerun | stop | continue" <<Feature>> as pipeline_mutate
+  rectangle "Pipeline UI (lower UI layer)\n==bitbucket-devops-ui.el\nhistory | details | logs\nshared command panel | navigation" <<Feature>> as pipeline_ui
+  rectangle "Pipeline Mutations\n==bitbucket-devops-pipelines-mutate.el\nconfigured and PR-selector runs\nhistory action | rerun | stop | continue" <<Feature>> as pipeline_mutate
   rectangle "Pipelines YAML Parser\n==bitbucket-devops-pipelines-yaml.el\nselectors | variables | deployments" <<Feature>> as pipeline_yaml
-  rectangle "Pipeline Watcher\n==bitbucket-devops-pipelines-watch.el\nrun | branch | repository trackers\nmode line | notify | backoff" <<Feature>> as watcher
-  rectangle "Magit Push Integration\n==bitbucket-devops-pipelines-magit.el\nopt-in successful-push observer" <<Feature>> as magitpush
+  rectangle "Pipeline Watcher\n==bitbucket-devops-pipelines-watch.el\nrun | branch | repository trackers\ncombined watcher list | notify | backoff" <<Feature>> as watcher
+  rectangle "Magit Push Integration\n==bitbucket-devops-pipelines-magit.el\nopt-in successful-push observer\npush-watch toggle commands" <<Feature>> as magitpush
 
   pipeline_mutate -right-> pipeline_yaml : parse
   pipeline_mutate -down-> watcher : watch run
+  pipeline_mutate ..> pipeline_ui : details-buffer actions
+  watcher -right-> pipeline_ui : render and logs
   magitpush -left-> watcher : discover pushed commit
 }
 
 package "Pull Request Feature Area" as pr_area {
   rectangle "Pull Request UI\n==bitbucket-devops-pull-requests-ui.el\nlist | details | diff | commits | activity\ncomments | tasks | reviewers | create | merge" <<Feature>> as pr_ui
+  rectangle "PR Comment Watcher\n==bitbucket-devops-pull-requests-watch.el\nquiet baseline | polling | notifications\nbackoff | expiry | change hook" <<Feature>> as pr_watch
   rectangle "Pull Request Model\n==bitbucket-devops-pull-requests.el\nsummaries | counts | helpers" <<Feature>> as pr_model
   rectangle "Pull Request REST Adapter\n==bitbucket-devops-pull-requests-rest.el\nPR resources | comments | tasks\nstatuses | reviewers | merge" <<Feature>> as pr_rest
 
   pr_ui -right-> pr_model : summaries
   pr_ui -down-> pr_rest : wrappers
+  pr_ui -down-> pr_watch : comment tracking
+  pr_watch -right-> pr_model : records
+  pr_watch -down-> pr_rest : poll comments and state
 }
 
 package "Shared Infrastructure" as shared {
@@ -97,6 +116,12 @@ user -down-> dispatch : M-x bitbucket-devops
 dispatch -down-> pipeline_area : pipeline and tracking commands
 dispatch -down-> pr_area : pull request commands
 
+pr_ui ..> pipeline_mutate : run configured pipeline
+pr_ui ..> pipeline_ui : navigation and command panel callbacks
+pipeline_mutate ..> pr_model : resolve PR selector
+pipeline_mutate ..> pr_rest : fetch PR details
+watcher ..> pr_watch : subscribe to watcher-change hook
+
 pipeline_area -down-> shared : context | cache | REST
 pr_area -down-> shared : context | cache | REST
 
@@ -114,11 +139,15 @@ legend bottom
 
   Notes:
   - Pull request pipeline selectors resolve through the PR REST adapter.
+  - PR comment watcher changes are announced through a lifecycle-scoped hook;
+    the combined watcher list subscribes only while its buffer mode is active.
+  - Pull request buffers provide configured-key lookup to the shared command
+    panel through buffer-local callbacks, preserving downward dependencies.
   - Shared REST owns auth headers, JSON, pagination, redirects, and errors.
   - Durable cache stores metadata only; logs, raw diffs, comments, tasks,
     and activity are fetched on demand.
 endlegend
 
-footer One package with shared infrastructure and two feature areas | Automatic Magit pipeline discovery is opt-in
+footer Acyclic internal require graph | Shared infrastructure plus pipeline and pull request features | Magit discovery is opt-in
 
 @enduml

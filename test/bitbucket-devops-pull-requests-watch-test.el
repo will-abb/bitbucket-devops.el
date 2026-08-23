@@ -375,5 +375,13 @@
            (car notifications)
            "Stopped watching PR #11 comments: watcher expired.")))))))
 
+(ert-deftest bitbucket-devops-pull-requests-watch-announces-registry-changes ()
+  (let ((bitbucket-devops-pull-requests-watch-changed-hook nil)
+        (changes 0))
+    (add-hook 'bitbucket-devops-pull-requests-watch-changed-hook
+              (lambda () (setq changes (1+ changes))))
+    (bitbucket-devops-pull-requests-watch--update-mode-line)
+    (should (= changes 1))))
+
 (provide 'bitbucket-devops-pull-requests-watch-test)
 ;;; bitbucket-devops-pull-requests-watch-test.el ends here

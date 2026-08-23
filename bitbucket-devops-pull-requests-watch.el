@@ -35,8 +35,9 @@
 
 (declare-function alert "ext:alert" (message &rest args))
 (declare-function notifications-notify "notifications" (&rest params))
-(declare-function bitbucket-devops-pipelines-watch--render-list-buffer
-                  "bitbucket-devops-pipelines-watch")
+
+(defvar bitbucket-devops-pull-requests-watch-changed-hook nil
+  "Hook run after the active pull request comment watchers change.")
 
 (defcustom bitbucket-devops-pull-requests-comments-poll-interval 60
   "Seconds between successful Bitbucket pull request comment watcher polls."
@@ -171,8 +172,7 @@ the user stops them, or retry handling removes them after repeated failures."
           (delq
            'bitbucket-devops-pull-requests-comments-watch-mode-line
            global-mode-string)))
-  (when (fboundp 'bitbucket-devops-pipelines-watch--render-list-buffer)
-    (bitbucket-devops-pipelines-watch--render-list-buffer))
+  (run-hooks 'bitbucket-devops-pull-requests-watch-changed-hook)
   (force-mode-line-update t))
 
 (defun bitbucket-devops-pull-requests-watch--normalize-state (state)

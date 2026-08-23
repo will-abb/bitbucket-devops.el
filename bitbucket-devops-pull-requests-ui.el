@@ -40,21 +40,10 @@
 (require 'bitbucket-devops-context)
 (require 'bitbucket-devops-rest)
 (require 'bitbucket-devops-ui)
+(require 'bitbucket-devops-pipelines-mutate)
 (require 'bitbucket-devops-pull-requests)
 (require 'bitbucket-devops-pull-requests-rest)
-
-(declare-function bitbucket-devops-pipelines-run-configured
-                  "bitbucket-devops-pipelines-mutate"
-                  (&optional directory additional))
-(declare-function bitbucket-devops-pull-requests-watch-comments
-                  "bitbucket-devops-pull-requests-watch"
-                  (context pull-request))
-(declare-function bitbucket-devops-pull-requests-watch-comments-active-p
-                  "bitbucket-devops-pull-requests-watch"
-                  (context pull-request-id))
-(declare-function bitbucket-devops-pull-requests-watch-comments-stop
-                  "bitbucket-devops-pull-requests-watch"
-                  (context pull-request-id))
+(require 'bitbucket-devops-pull-requests-watch)
 (declare-function evil-define-key* "ext:evil-core"
                   (state keymap key def &rest bindings))
 (declare-function magit-list-local-branch-names "magit-git" ())
@@ -746,6 +735,13 @@ are skipped unless they are also covered by
                  (bitbucket-devops-pull-requests-ui--key-for-command
                   bitbucket-devops-pull-requests-metadata-keybindings command)))
        (concat bitbucket-devops-pull-requests-metadata-prefix-key " " key)))))
+
+(defun bitbucket-devops-pull-requests-ui--configure-command-key-lookup ()
+  "Expose this buffer's configured keys to the shared command panel."
+  (setq-local bitbucket-devops-ui--key-for-command-function
+              #'bitbucket-devops-pull-requests-ui-key-for-command)
+  (setq-local bitbucket-devops-ui--keys-for-command-function
+              #'bitbucket-devops-pull-requests-ui-keys-for-command))
 
 (defcustom bitbucket-devops-pull-requests-list-column-widths
   '((number . 8)
@@ -2829,6 +2825,7 @@ reviewers."
   (setq-local line-spacing 0.12)
   (setq-local header-line-format
               '(:eval (bitbucket-devops-pull-requests-ui--detail-header-line)))
+  (bitbucket-devops-pull-requests-ui--configure-command-key-lookup)
   (bitbucket-devops-pull-requests-ui-install-evil-bindings))
 
 (defvar bitbucket-devops-pull-requests-description-edit-mode-map
@@ -3648,6 +3645,7 @@ Optional FILE-COUNT is shown in the header when non-nil."
      ("^--- .*$" 0 'bitbucket-devops-pull-requests-removed-face t)
      ("^\\+\\+\\+ .*$" 0 'bitbucket-devops-pull-requests-added-face t))
    'append)
+  (bitbucket-devops-pull-requests-ui--configure-command-key-lookup)
   (bitbucket-devops-pull-requests-ui-install-evil-bindings))
 
 (define-derived-mode bitbucket-devops-pull-requests-commits-mode special-mode
@@ -3658,6 +3656,7 @@ Optional FILE-COUNT is shown in the header when non-nil."
   (setq-local line-spacing 0.1)
   (when (fboundp 'hl-line-mode)
     (hl-line-mode 1))
+  (bitbucket-devops-pull-requests-ui--configure-command-key-lookup)
   (bitbucket-devops-pull-requests-ui-install-evil-bindings))
 
 (define-derived-mode bitbucket-devops-pull-requests-activity-mode special-mode
@@ -3668,6 +3667,7 @@ Optional FILE-COUNT is shown in the header when non-nil."
   (setq-local line-spacing 0.1)
   (when (fboundp 'hl-line-mode)
     (hl-line-mode 1))
+  (bitbucket-devops-pull-requests-ui--configure-command-key-lookup)
   (bitbucket-devops-pull-requests-ui-install-evil-bindings))
 
 (defvar bitbucket-devops-pull-requests-ui--applied-keybindings nil
@@ -5759,6 +5759,7 @@ When CLOSE-SOURCE-BRANCH is non-nil, delete the source branch after merging."
   (when (fboundp 'hl-line-mode)
     (hl-line-mode 1))
   (tabulated-list-init-header)
+  (bitbucket-devops-pull-requests-ui--configure-command-key-lookup)
   (bitbucket-devops-pull-requests-ui-install-evil-bindings))
 
 (defun bitbucket-devops-pull-requests-ui--install-evil-bindings ()

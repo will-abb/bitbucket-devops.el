@@ -25,14 +25,14 @@ compile:
 			bitbucket-devops-context.el \
 			bitbucket-devops-cache.el \
 			bitbucket-devops-rest.el \
-			bitbucket-devops-ui.el \
-			bitbucket-devops-pipelines-watch.el \
-			bitbucket-devops-pipelines-magit.el \
 			bitbucket-devops-pipelines-yaml.el \
-			bitbucket-devops-pipelines-mutate.el \
 			bitbucket-devops-pull-requests.el \
 			bitbucket-devops-pull-requests-rest.el \
 			bitbucket-devops-pull-requests-watch.el \
+			bitbucket-devops-ui.el \
+			bitbucket-devops-pipelines-watch.el \
+			bitbucket-devops-pipelines-magit.el \
+			bitbucket-devops-pipelines-mutate.el \
 			bitbucket-devops-pull-requests-ui.el \
 			bitbucket-devops.el
 
