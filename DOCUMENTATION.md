@@ -154,6 +154,9 @@ your Doom or Emacs configuration.
 | `n` | Load the next history page |
 | `f` | Filter loaded history by any branch name, or return to all branches |
 | `s` | Choose a broad status filter |
+| `a` | Filter loaded history by commit author |
+| `T` | Filter loaded history by displayed pipeline type |
+| `D` | Filter loaded history by deployment environment |
 | `RET` | Open pipeline details |
 | `o` | Open the selected pipeline in the browser, or the repository Pipelines page when no row is selected |
 | `O` | Open the repository Pipelines page in the browser |
@@ -458,6 +461,16 @@ already present in loaded history. Magit supplies the Git branch candidates.
 You can also type another branch name directly. Filtering applies to loaded
 pages, so press `n` to load older pages when a selected branch has no recent
 runs.
+
+The author, type, and deployment filters offer values present in loaded
+history. Author filtering matches the displayed commit author, and type
+filtering matches the displayed `default` or `custom: selector` label. The
+deployment filter offers individual environment names and matches a pipeline
+when any of its deployment steps uses that environment. Branch, status,
+author, type, and deployment filters compose, so a pipeline must satisfy every
+active filter. Choose the corresponding `[all ...]` entry to clear one filter.
+Loading older pages extends the values and matching pipelines available to
+these filters.
 
 Pipeline history timestamps are displayed in the local system time zone by
 default. Set `bitbucket-devops-pipelines-display-time-zone` to a named time

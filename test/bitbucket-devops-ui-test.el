@@ -32,6 +32,33 @@
    (vconcat
     (mapcar #'substring-no-properties (append (cadr row) nil)))))
 
+(defun bitbucket-devops-ui-test-history-filter-pipelines ()
+  "Return two pipeline records with distinct loaded filter values."
+  (let* ((first-page
+          (bitbucket-devops-ui-test-read-json-fixture
+           "pipelines-page-1.json"))
+         (second-page
+          (bitbucket-devops-ui-test-read-json-fixture
+           "pipelines-page-2.json"))
+         (first (car (alist-get 'values first-page)))
+         (second (car (alist-get 'values second-page))))
+    (setf
+     (alist-get 'selector (alist-get 'target second))
+     '((pattern . "nightly")))
+    (setf
+     (alist-get
+      'raw
+      (alist-get 'author (alist-get 'commit (alist-get 'target second))))
+     "Other User <other@example.com>")
+    (setf
+     (alist-get 'bitbucket-devops-pipelines-deployments first)
+     '(((number . 1) (environment . ((name . "development"))))
+       ((number . 2) (environment . ((name . "production"))))))
+    (setf
+     (alist-get 'bitbucket-devops-pipelines-deployments second)
+     '(((number . 1) (environment . ((name . "staging"))))))
+    (list first second)))
+
 (ert-deftest bitbucket-devops-ui-pipeline-row-renders-recorded-pipeline ()
   (let* ((page
           (bitbucket-devops-ui-test-read-json-fixture
@@ -926,6 +953,70 @@
          (bitbucket-devops-ui--history-filter-pipelines pipelines))
         '(11))))))
 
+(ert-deftest bitbucket-devops-ui-history-loaded-filter-candidates ()
+  (with-temp-buffer
+    (bitbucket-devops-pipelines-history-mode)
+    (setq-local bitbucket-devops-ui--history-pipelines
+                (bitbucket-devops-ui-test-history-filter-pipelines))
+    (should
+     (equal
+      (bitbucket-devops-ui--history-author-names)
+      '("Other User <other@example.com>" "Test User <test@example.com>")))
+    (should
+     (equal
+      (bitbucket-devops-ui--history-type-names)
+      '("custom: nightly" "default")))
+    (should
+     (equal
+      (bitbucket-devops-ui--history-deployment-names)
+      '("development" "production" "staging")))))
+
+(ert-deftest bitbucket-devops-ui-history-filter-pipelines-by-loaded-values ()
+  (let ((pipelines (bitbucket-devops-ui-test-history-filter-pipelines)))
+    (with-temp-buffer
+      (bitbucket-devops-pipelines-history-mode)
+      (setq-local bitbucket-devops-ui--history-author-filter
+                  "Other User <other@example.com>")
+      (should
+       (equal
+        (mapcar
+         (lambda (pipeline) (alist-get 'build_number pipeline))
+         (bitbucket-devops-ui--history-filter-pipelines pipelines))
+        '(11)))
+      (setq-local bitbucket-devops-ui--history-author-filter 'all)
+      (setq-local bitbucket-devops-ui--history-type-filter "custom: nightly")
+      (should
+       (equal
+        (mapcar
+         (lambda (pipeline) (alist-get 'build_number pipeline))
+         (bitbucket-devops-ui--history-filter-pipelines pipelines))
+        '(11)))
+      (setq-local bitbucket-devops-ui--history-type-filter 'all)
+      (setq-local bitbucket-devops-ui--history-deployment-filter "production")
+      (should
+       (equal
+        (mapcar
+         (lambda (pipeline) (alist-get 'build_number pipeline))
+         (bitbucket-devops-ui--history-filter-pipelines pipelines))
+        '(12))))))
+
+(ert-deftest bitbucket-devops-ui-history-loaded-filters-compose ()
+  (let ((pipelines (bitbucket-devops-ui-test-history-filter-pipelines)))
+    (with-temp-buffer
+      (bitbucket-devops-pipelines-history-mode)
+      (setq-local bitbucket-devops-ui--history-branch-filter "main")
+      (setq-local bitbucket-devops-ui--history-status-filter 'successful)
+      (setq-local bitbucket-devops-ui--history-author-filter
+                  "Test User <test@example.com>")
+      (setq-local bitbucket-devops-ui--history-type-filter "default")
+      (setq-local bitbucket-devops-ui--history-deployment-filter "production")
+      (should
+       (equal
+        (mapcar
+         (lambda (pipeline) (alist-get 'build_number pipeline))
+         (bitbucket-devops-ui--history-filter-pipelines pipelines))
+        '(12))))))
+
 (ert-deftest bitbucket-devops-ui-history-branch-names-include-loaded-and-current ()
   (let* ((first-page
           (bitbucket-devops-ui-test-read-json-fixture
@@ -987,6 +1078,26 @@
         (should
          (equal bitbucket-devops-ui--history-branch-filter
                 "feature/example"))))))
+
+(ert-deftest bitbucket-devops-ui-history-set-loaded-filters-renders-selection ()
+  (with-temp-buffer
+    (bitbucket-devops-pipelines-history-mode)
+    (let ((render-count 0))
+      (cl-letf (((symbol-function 'bitbucket-devops-ui--history-render)
+                 (lambda () (setq render-count (1+ render-count)))))
+        (bitbucket-devops-pipelines-history-set-author-filter
+         "Test User <test@example.com>")
+        (bitbucket-devops-pipelines-history-set-type-filter "default")
+        (bitbucket-devops-pipelines-history-set-deployment-filter "production")
+        (should (= render-count 3))
+        (should
+         (equal bitbucket-devops-ui--history-author-filter
+                "Test User <test@example.com>"))
+        (should
+         (equal bitbucket-devops-ui--history-type-filter "default"))
+        (should
+         (equal bitbucket-devops-ui--history-deployment-filter
+                "production"))))))
 
 (ert-deftest bitbucket-devops-ui-history-tab-expands-current-column ()
   (with-temp-buffer
@@ -1397,6 +1508,9 @@
          (kbd "n") #'bitbucket-devops-pipelines-history-load-more
          (kbd "f") #'bitbucket-devops-pipelines-history-set-branch-filter
          (kbd "s") #'bitbucket-devops-pipelines-history-set-status-filter
+         (kbd "a") #'bitbucket-devops-pipelines-history-set-author-filter
+         (kbd "T") #'bitbucket-devops-pipelines-history-set-type-filter
+         (kbd "D") #'bitbucket-devops-pipelines-history-set-deployment-filter
          (kbd "RET") #'bitbucket-devops-pipelines-history-view-details
          (kbd "S-RET") #'bitbucket-devops-pipelines-copy-browser-url-at-point
          (kbd "S-<return>") #'bitbucket-devops-pipelines-copy-browser-url-at-point
@@ -1486,6 +1600,18 @@
    (eq
     (lookup-key bitbucket-devops-pipelines-history-mode-map (kbd "f"))
     #'bitbucket-devops-pipelines-history-set-branch-filter))
+  (should
+   (eq
+    (lookup-key bitbucket-devops-pipelines-history-mode-map (kbd "a"))
+    #'bitbucket-devops-pipelines-history-set-author-filter))
+  (should
+   (eq
+    (lookup-key bitbucket-devops-pipelines-history-mode-map (kbd "T"))
+    #'bitbucket-devops-pipelines-history-set-type-filter))
+  (should
+   (eq
+    (lookup-key bitbucket-devops-pipelines-history-mode-map (kbd "D"))
+    #'bitbucket-devops-pipelines-history-set-deployment-filter))
   (should
    (eq
     (lookup-key bitbucket-devops-pipelines-history-mode-map (kbd "t"))
@@ -1609,6 +1735,10 @@
       (should (string-match-p "O Browser list" panel))
       (should (string-match-p "S-RET Copy link" panel))
       (should (string-match-p "f Choose branch" panel))
+      (should (string-match-p "s Status" panel))
+      (should (string-match-p "a Author" panel))
+      (should (string-match-p "T Type" panel))
+      (should (string-match-p "D Deployment" panel))
       (should (string-match-p "t Track" panel))
       (should (string-match-p "R Run pipeline" panel))
       (should (string-match-p "TAB Expand column" panel))

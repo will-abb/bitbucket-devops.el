@@ -70,6 +70,15 @@ The value is `all' or a branch name string.")
 (defvar-local bitbucket-devops-ui--history-status-filter 'all
   "Status filter used by the current history buffer.")
 
+(defvar-local bitbucket-devops-ui--history-author-filter 'all
+  "Commit author filter used by the current history buffer.")
+
+(defvar-local bitbucket-devops-ui--history-type-filter 'all
+  "Pipeline type filter used by the current history buffer.")
+
+(defvar-local bitbucket-devops-ui--history-deployment-filter 'all
+  "Deployment environment filter used by the current history buffer.")
+
 (defvar-local bitbucket-devops-ui--details-pipeline-uuid nil
   "Pipeline UUID displayed by the current details buffer.")
 
@@ -324,6 +333,12 @@ A width of zero gives the column the remaining line width, matching
       (format "custom: %s" pattern)
     "default"))
 
+(defun bitbucket-devops-ui--pipeline-author-label (pipeline)
+  "Return the displayed commit author for PIPELINE, or an empty string."
+  (or (bitbucket-devops-ui--nested-get
+       pipeline 'target 'commit 'author 'raw)
+      ""))
+
 (defun bitbucket-devops-ui--deployment-environment-name (deployment)
   "Return DEPLOYMENT's environment name."
   (bitbucket-devops-ui--nested-get deployment 'environment 'name))
@@ -474,7 +489,7 @@ A width of zero gives the column the remaining line width, matching
        (substring hash 0 (min 12 (length hash)))
        'bitbucket-devops-pipelines-commit-face)
       (bitbucket-devops-ui--style
-       (bitbucket-devops-ui--nested-get commit 'author 'raw)
+       (bitbucket-devops-ui--pipeline-author-label pipeline)
        'bitbucket-devops-pipelines-author-face)
       (bitbucket-devops-ui--style
        (bitbucket-devops-ui--format-time (alist-get 'created_on pipeline))
@@ -543,9 +558,58 @@ configured-remote Git refs reported by Magit."
       (bitbucket-devops-ui--history-magit-branch-names))))
    #'string-lessp))
 
+(defun bitbucket-devops-ui--history-filter-values (values)
+  "Return sorted unique non-empty strings from VALUES."
+  (sort
+   (delete-dups
+    (seq-filter
+     (lambda (value)
+       (and (stringp value)
+            (not (string-empty-p value))))
+     values))
+   #'string-lessp))
+
+(defun bitbucket-devops-ui--history-author-names ()
+  "Return commit authors available in loaded pipeline history."
+  (bitbucket-devops-ui--history-filter-values
+   (mapcar
+    #'bitbucket-devops-ui--pipeline-author-label
+    bitbucket-devops-ui--history-pipelines)))
+
+(defun bitbucket-devops-ui--history-type-names ()
+  "Return pipeline types available in loaded pipeline history."
+  (bitbucket-devops-ui--history-filter-values
+   (mapcar
+    #'bitbucket-devops-ui--pipeline-type-label
+    bitbucket-devops-ui--history-pipelines)))
+
+(defun bitbucket-devops-ui--history-deployment-names ()
+  "Return deployment environments available in loaded pipeline history."
+  (bitbucket-devops-ui--history-filter-values
+   (apply
+    #'append
+    (mapcar
+     (lambda (pipeline)
+       (bitbucket-devops-ui--deployment-names
+        (alist-get 'bitbucket-devops-pipelines-deployments pipeline)))
+     bitbucket-devops-ui--history-pipelines))))
+
+(defun bitbucket-devops-ui--history-string-filter-name (filter)
+  "Return FILTER when it is a string, or nil for all values."
+  (when (stringp filter) filter))
+
 (defun bitbucket-devops-ui--history-filter-pipelines (pipelines)
   "Return PIPELINES matching the current history buffer filters."
-  (let ((branch (bitbucket-devops-ui--history-branch-filter-name)))
+  (let ((branch (bitbucket-devops-ui--history-branch-filter-name))
+        (author
+         (bitbucket-devops-ui--history-string-filter-name
+          bitbucket-devops-ui--history-author-filter))
+        (type
+         (bitbucket-devops-ui--history-string-filter-name
+          bitbucket-devops-ui--history-type-filter))
+        (deployment
+         (bitbucket-devops-ui--history-string-filter-name
+          bitbucket-devops-ui--history-deployment-filter)))
     (seq-filter
      (lambda (pipeline)
        (and
@@ -558,7 +622,23 @@ configured-remote Git refs reported by Magit."
          (eq bitbucket-devops-ui--history-status-filter 'all)
          (eq
           (bitbucket-devops-ui--pipeline-status-category pipeline)
-          bitbucket-devops-ui--history-status-filter))))
+          bitbucket-devops-ui--history-status-filter))
+        (or
+         (null author)
+         (equal
+          (bitbucket-devops-ui--pipeline-author-label pipeline)
+          author))
+        (or
+         (null type)
+         (equal (bitbucket-devops-ui--pipeline-type-label pipeline) type))
+        (or
+         (null deployment)
+         (member
+          deployment
+          (bitbucket-devops-ui--deployment-names
+           (alist-get
+            'bitbucket-devops-pipelines-deployments
+            pipeline))))))
      pipelines)))
 
 (defun bitbucket-devops-ui--step-row (step index)
@@ -649,6 +729,12 @@ PIPELINE is the pipeline owning STEP."
                 #'bitbucket-devops-pipelines-history-set-branch-filter)
     (define-key map (kbd "s")
                 #'bitbucket-devops-pipelines-history-set-status-filter)
+    (define-key map (kbd "a")
+                #'bitbucket-devops-pipelines-history-set-author-filter)
+    (define-key map (kbd "T")
+                #'bitbucket-devops-pipelines-history-set-type-filter)
+    (define-key map (kbd "D")
+                #'bitbucket-devops-pipelines-history-set-deployment-filter)
     (define-key map (kbd "RET")
                 #'bitbucket-devops-pipelines-history-view-details)
     (define-key map (kbd "S-RET")
@@ -712,6 +798,9 @@ PIPELINE is the pipeline owning STEP."
    (kbd "n") #'bitbucket-devops-pipelines-history-load-more
    (kbd "f") #'bitbucket-devops-pipelines-history-set-branch-filter
    (kbd "s") #'bitbucket-devops-pipelines-history-set-status-filter
+   (kbd "a") #'bitbucket-devops-pipelines-history-set-author-filter
+   (kbd "T") #'bitbucket-devops-pipelines-history-set-type-filter
+   (kbd "D") #'bitbucket-devops-pipelines-history-set-deployment-filter
    (kbd "RET") #'bitbucket-devops-pipelines-history-view-details
    (kbd "S-RET") #'bitbucket-devops-pipelines-copy-browser-url-at-point
    (kbd "S-<return>") #'bitbucket-devops-pipelines-copy-browser-url-at-point
@@ -976,15 +1065,18 @@ FIRST-FALLBACK and SECOND-FALLBACK are shown when unbound."
        "\n"
        (bitbucket-devops-ui--command-panel-cell "r" "Refresh" 28)
        (bitbucket-devops-ui--command-panel-cell "d" "Download logs" 28)
-       (bitbucket-devops-ui--command-panel-cell "q" "Quit")
+       (bitbucket-devops-ui--command-panel-cell "a" "Author")
        "\n"
        (bitbucket-devops-ui--command-panel-cell "TAB" "Expand column" 28)
        (bitbucket-devops-ui--command-panel-cell "t" "Track" 28)
-       (bitbucket-devops-ui--command-panel-cell "O" "Browser list")
+       (bitbucket-devops-ui--command-panel-cell "T" "Type")
        "\n"
        (bitbucket-devops-ui--command-panel-cell "n" "More" 28)
        (bitbucket-devops-ui--command-panel-cell "R" "Run pipeline" 28)
+       (bitbucket-devops-ui--command-panel-cell "D" "Deployment")
        "\n"
+       (bitbucket-devops-ui--command-panel-cell "q" "Quit" 28)
+       (bitbucket-devops-ui--command-panel-cell "O" "Browser list" 28)
        (bitbucket-devops-ui--command-panel-help-cell)
        "\n"))
      ((derived-mode-p 'bitbucket-devops-pipelines-details-mode)
@@ -2129,6 +2221,81 @@ non-nil."
   (setq bitbucket-devops-ui--history-status-filter status)
   (bitbucket-devops-ui--history-render)
   (message "Bitbucket pipeline status filter: %s" status))
+
+(defun bitbucket-devops-ui--history-read-loaded-filter
+    (prompt all-label candidates current)
+  "Read a loaded-history filter with PROMPT.
+
+ALL-LABEL represents no filter.  CANDIDATES contains loaded values and CURRENT
+is the active filter value."
+  (let ((selected
+         (completing-read
+          prompt
+          (cons all-label candidates)
+          nil
+          t
+          nil
+          nil
+          (or (bitbucket-devops-ui--history-string-filter-name current)
+              all-label))))
+    (if (equal selected all-label) 'all selected)))
+
+(defun bitbucket-devops-pipelines-history-set-author-filter (author)
+  "Set the current history buffer commit AUTHOR filter."
+  (interactive
+   (list
+    (bitbucket-devops-ui--history-read-loaded-filter
+     "Pipeline author: "
+     "[all authors]"
+     (bitbucket-devops-ui--history-author-names)
+     bitbucket-devops-ui--history-author-filter)))
+  (unless (or (eq author 'all)
+              (and (stringp author) (not (string-empty-p author))))
+    (user-error "Unsupported Bitbucket pipeline author filter: %s" author))
+  (setq bitbucket-devops-ui--history-author-filter author)
+  (bitbucket-devops-ui--history-render)
+  (message "Bitbucket pipeline author filter: %s"
+           (or (bitbucket-devops-ui--history-string-filter-name author)
+               "all authors")))
+
+(defun bitbucket-devops-pipelines-history-set-type-filter (type)
+  "Set the current history buffer pipeline TYPE filter."
+  (interactive
+   (list
+    (bitbucket-devops-ui--history-read-loaded-filter
+     "Pipeline type: "
+     "[all types]"
+     (bitbucket-devops-ui--history-type-names)
+     bitbucket-devops-ui--history-type-filter)))
+  (unless (or (eq type 'all)
+              (and (stringp type) (not (string-empty-p type))))
+    (user-error "Unsupported Bitbucket pipeline type filter: %s" type))
+  (setq bitbucket-devops-ui--history-type-filter type)
+  (bitbucket-devops-ui--history-render)
+  (message "Bitbucket pipeline type filter: %s"
+           (or (bitbucket-devops-ui--history-string-filter-name type)
+               "all types")))
+
+(defun bitbucket-devops-pipelines-history-set-deployment-filter (deployment)
+  "Set the current history buffer DEPLOYMENT environment filter."
+  (interactive
+   (list
+    (bitbucket-devops-ui--history-read-loaded-filter
+     "Pipeline deployment: "
+     "[all deployments]"
+     (bitbucket-devops-ui--history-deployment-names)
+     bitbucket-devops-ui--history-deployment-filter)))
+  (unless (or (eq deployment 'all)
+              (and (stringp deployment)
+                   (not (string-empty-p deployment))))
+    (user-error
+     "Unsupported Bitbucket pipeline deployment filter: %s"
+     deployment))
+  (setq bitbucket-devops-ui--history-deployment-filter deployment)
+  (bitbucket-devops-ui--history-render)
+  (message "Bitbucket pipeline deployment filter: %s"
+           (or (bitbucket-devops-ui--history-string-filter-name deployment)
+               "all deployments")))
 
 (defun bitbucket-devops-ui--history-buffer-name (context)
   "Return the history buffer name for repository CONTEXT."

@@ -6,7 +6,7 @@
 ;; Assisted-by: Codex:gpt-5.5-codex
 ;; Assisted-by: Claude:claude-opus-5
 ;; Maintainer: Will Bosch-Bello <williamsbosch@gmail.com>
-;; Version: 3.0.2
+;; Version: 3.0.3
 ;; Package-Requires: ((emacs "29.1") (magit "4.0.0") (markdown-mode "2.6") (transient "0.3.0") (yaml "1.2.3"))
 ;; Keywords: tools, vc
 ;; URL: https://github.com/will-abb/bitbucket-devops.el
