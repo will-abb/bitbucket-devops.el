@@ -2358,8 +2358,29 @@ loading.  CALLBACK receives the complete step list and an error plist."
            (funcall callback all-steps nil)))))
    next-url))
 
+(defun bitbucket-devops-ui--step-error-text (step)
+  "Return Bitbucket-reported failure text for STEP, or nil."
+  (let* ((step-error
+          (bitbucket-devops-ui--nested-get step 'state 'result 'error))
+         (message (alist-get 'message step-error))
+         (key (alist-get 'key step-error)))
+    (when (and (stringp message)
+               (not (string-empty-p message)))
+      (concat
+       (propertize
+        "Bitbucket-reported step failure\n"
+        'face 'bitbucket-devops-pipelines-error-face)
+       (if (and (stringp key)
+                (not (string-empty-p key)))
+           (format "Error key: %s\n" key)
+         "")
+       message
+       "\n\nRaw step log\n\n"))))
+
 (defun bitbucket-devops-ui--render-step-log (context pipeline step log)
-  "Render LOG for STEP from PIPELINE and CONTEXT in a read-only buffer."
+  "Render LOG and any Bitbucket failure for STEP in a read-only buffer.
+
+PIPELINE and CONTEXT identify the displayed log buffer."
   (let ((buffer
          (get-buffer-create
           (bitbucket-devops-ui--log-buffer-name context pipeline step))))
@@ -2367,6 +2388,9 @@ loading.  CALLBACK receives the complete step list and an error plist."
       (bitbucket-devops-pipelines-log-mode)
       (let ((inhibit-read-only t))
         (erase-buffer)
+        (when-let ((step-error-text
+                    (bitbucket-devops-ui--step-error-text step)))
+          (insert step-error-text))
         (insert log)
         (ansi-color-apply-on-region (point-min) (point-max))
         (goto-char (point-min)))

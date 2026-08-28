@@ -7,6 +7,12 @@ and this project uses semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Display Bitbucket-reported runner and setup failure metadata above the raw
+  step log, including the error key and message, while leaving downloaded logs
+  unchanged.
+
 ## [3.0.2] - 2026-08-23
 
 ### Changed

@@ -418,10 +418,15 @@ Initial details column widths are configurable through
 ## 8. Logs
 
 `bitbucket-devops-pipelines-view-step-log` retrieves the raw log for a completed
-pipeline step and renders it in a dedicated read-only buffer.
+pipeline step and renders it in a dedicated read-only buffer. When the step
+record includes Bitbucket-reported failure metadata under
+`state.result.error`, the displayed buffer prepends its error key and message
+above a clearly labeled raw log. Downloaded files remain unmodified raw logs.
 
 - Use `compilation-mode` or a derived mode.
 - Apply ANSI color handling.
+- Show runner and setup failures reported separately from the raw log so the
+  displayed failure reason agrees with the terminal step state.
 - Name log buffers predictably using the repository, pipeline build number, and
   step name.
 - Requesting a log for a non-terminal step must produce an actionable message

@@ -530,6 +530,13 @@ token does not have enough pipeline write permission.
 
 ### Logs
 
+When Bitbucket reports a runner or setup failure separately from the raw step
+log, the viewed log buffer displays that failure first. It includes Bitbucket's
+error key and message, followed by a clearly labeled raw step log. This covers
+failures such as a self-hosted runner being unable to pull the configured build
+image. Downloaded log files remain the unmodified raw logs returned by
+Bitbucket.
+
 Set `bitbucket-devops-pipelines-auto-download-logs` to non-nil to download logs
 after a tracked pipeline completes. Downloads go to
 `bitbucket-devops-pipelines-log-download-directory`, which defaults to

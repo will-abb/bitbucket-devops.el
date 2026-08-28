@@ -863,7 +863,46 @@
           (should (derived-mode-p 'bitbucket-devops-pipelines-log-mode))
           (should buffer-read-only)
           (should (string-match-p "PASS default pipeline" (buffer-string)))
+          (should-not
+           (string-match-p
+            "Bitbucket-reported step failure"
+            (buffer-string)))
           (should-not (string-match-p "\e\\[" (buffer-string))))
+      (kill-buffer buffer))))
+
+(ert-deftest bitbucket-devops-ui-render-step-log-prepends-step-error ()
+  (let* ((context '(:workspace "williseed1" :repo-slug "test"))
+         (pipeline '((uuid . "{pipeline-12}") (build_number . 12)))
+         (step
+          '((uuid . "{step-1}")
+            (name . "Build")
+            (state
+             . ((name . "COMPLETED")
+                (result
+                 . ((name . "FAILED")
+                    (error
+                     . ((key . "runner.image-pull-failure")
+                        (message
+                         . "Unable to pull registry.example.com/team/image:98")))))))))
+         (buffer
+          (bitbucket-devops-ui--render-step-log
+           context pipeline step "script output\n")))
+    (unwind-protect
+        (with-current-buffer buffer
+          (should buffer-read-only)
+          (should
+           (equal
+            (substring-no-properties (buffer-string))
+            (concat
+             "Bitbucket-reported step failure\n"
+             "Error key: runner.image-pull-failure\n"
+             "Unable to pull registry.example.com/team/image:98\n\n"
+             "Raw step log\n\n"
+             "script output\n")))
+          (should
+           (eq
+            (get-text-property (point-min) 'face)
+            'bitbucket-devops-pipelines-error-face)))
       (kill-buffer buffer))))
 
 (ert-deftest bitbucket-devops-ui-history-filter-pipelines-by-selected-branch ()
