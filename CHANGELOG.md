@@ -7,6 +7,19 @@ and this project uses semantic versioning.
 
 ## [Unreleased]
 
+## [3.0.3] - 2026-08-29
+
+### Added
+
+- Added composable pipeline history filters for loaded commit authors, pipeline
+  types, and deployment environments.
+
+### Fixed
+
+- Display Bitbucket-reported runner and setup failure metadata above the raw
+  step log, including the error key and message, while leaving downloaded logs
+  unchanged.
+
 ## [3.0.2] - 2026-08-23
 
 ### Changed

@@ -16,7 +16,8 @@ Bitbucket Data Center.
 
 - Resolve the current Bitbucket Cloud repository from an SSH Git remote.
 - Show pipeline history for the current repository.
-- Filter loaded history by any branch name and by broad status categories.
+- Filter loaded history by branch, broad status category, commit author,
+  displayed pipeline type, and deployment environment.
 - Show pipeline details and steps.
 - Fetch logs for a completed pipeline step into an Emacs buffer.
 - Download all available completed step logs for a pipeline into a configurable
@@ -353,6 +354,14 @@ Initial history column widths are configurable through
 - Branch filtering applies to loaded pages. Loading additional pages extends the
   locally filtered result set.
 - A status filter supports all, successful, failed, and in-progress runs.
+- Author, pipeline type, and deployment filters offer values present in loaded
+  history. Author and type filters match their displayed column values.
+- A deployment filter matches an individual environment name in a pipeline's
+  deployment summary, including pipelines with multiple deployment steps.
+- The branch, status, author, type, and deployment filters compose with AND
+  semantics. Each filter has an all-values choice that clears that filter.
+- Loading additional pages extends the available author, type, and deployment
+  choices and the locally filtered result set.
 - The client follows Bitbucket's `next` pagination links.
 - Initial rendering fetches one page.
 - A load-more command fetches the next page and appends rows.
@@ -418,10 +427,15 @@ Initial details column widths are configurable through
 ## 8. Logs
 
 `bitbucket-devops-pipelines-view-step-log` retrieves the raw log for a completed
-pipeline step and renders it in a dedicated read-only buffer.
+pipeline step and renders it in a dedicated read-only buffer. When the step
+record includes Bitbucket-reported failure metadata under
+`state.result.error`, the displayed buffer prepends its error key and message
+above a clearly labeled raw log. Downloaded files remain unmodified raw logs.
 
 - Use `compilation-mode` or a derived mode.
 - Apply ANSI color handling.
+- Show runner and setup failures reported separately from the raw log so the
+  displayed failure reason agrees with the terminal step state.
 - Name log buffers predictably using the repository, pipeline build number, and
   step name.
 - Requesting a log for a non-terminal step must produce an actionable message
@@ -838,6 +852,9 @@ r    Refresh history
 n    Load next history page
 f    Filter loaded history by branch
 s    Filter loaded history by status
+a    Filter loaded history by commit author
+T    Filter loaded history by displayed pipeline type
+D    Filter loaded history by deployment environment
 RET  Open pipeline details
 S-RET Copy browser URL
 o    Open selected pipeline in browser
@@ -1007,7 +1024,8 @@ The package contract is satisfied when all of the following are true:
 3. A user with a configured Bitbucket Cloud token in `.authinfo.gpg` can list
    pipeline history and pull requests without blocking the Emacs UI.
 4. Pipeline history supports first-page loading, load-more pagination, refresh,
-   paused-pipeline inclusion, arbitrary branch filtering, and status filtering.
+   paused-pipeline inclusion, and composable branch, status, commit-author,
+   displayed-type, and deployment-environment filtering.
 5. A user can open a pipeline, select a completed step, and view its
    ANSI-colored log.
 6. A user can asynchronously download one completed step log or all available

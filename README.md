@@ -3,8 +3,9 @@
 `bitbucket-devops.el` brings the Bitbucket Cloud workflows a DevOps engineer
 uses every day into Emacs: Pipelines and pull requests.
 
-- **Pipelines** — repository-aware history and details, completed step logs,
-  watcher notifications, manual triggers driven by `bitbucket-pipelines.yml`,
+- **Pipelines** — repository-aware, filterable history and details, completed
+  step logs with Bitbucket-reported runner and setup failures, watcher
+  notifications, manual triggers driven by `bitbucket-pipelines.yml`,
   manual-step continuation, reruns, and cancellation.
 - **Pull requests** — listing and filtering, build summaries, comments and
   activity, commits, changed-file summaries, raw diff buffers, review actions,

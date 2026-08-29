@@ -154,6 +154,9 @@ your Doom or Emacs configuration.
 | `n` | Load the next history page |
 | `f` | Filter loaded history by any branch name, or return to all branches |
 | `s` | Choose a broad status filter |
+| `a` | Filter loaded history by commit author |
+| `T` | Filter loaded history by displayed pipeline type |
+| `D` | Filter loaded history by deployment environment |
 | `RET` | Open pipeline details |
 | `o` | Open the selected pipeline in the browser, or the repository Pipelines page when no row is selected |
 | `O` | Open the repository Pipelines page in the browser |
@@ -459,6 +462,16 @@ You can also type another branch name directly. Filtering applies to loaded
 pages, so press `n` to load older pages when a selected branch has no recent
 runs.
 
+The author, type, and deployment filters offer values present in loaded
+history. Author filtering matches the displayed commit author, and type
+filtering matches the displayed `default` or `custom: selector` label. The
+deployment filter offers individual environment names and matches a pipeline
+when any of its deployment steps uses that environment. Branch, status,
+author, type, and deployment filters compose, so a pipeline must satisfy every
+active filter. Choose the corresponding `[all ...]` entry to clear one filter.
+Loading older pages extends the values and matching pipelines available to
+these filters.
+
 Pipeline history timestamps are displayed in the local system time zone by
 default. Set `bitbucket-devops-pipelines-display-time-zone` to a named time
 zone when you want a fixed display zone:
@@ -529,6 +542,13 @@ be pending. It reports Bitbucket's API error if the endpoint changes or the
 token does not have enough pipeline write permission.
 
 ### Logs
+
+When Bitbucket reports a runner or setup failure separately from the raw step
+log, the viewed log buffer displays that failure first. It includes Bitbucket's
+error key and message, followed by a clearly labeled raw step log. This covers
+failures such as a self-hosted runner being unable to pull the configured build
+image. Downloaded log files remain the unmodified raw logs returned by
+Bitbucket.
 
 Set `bitbucket-devops-pipelines-auto-download-logs` to non-nil to download logs
 after a tracked pipeline completes. Downloads go to
