@@ -167,14 +167,53 @@ values are sent to Bitbucket as text, so restore their textual representation."
       :deployments (cdr entry)))
    pull-request-envs))
 
+(defun bitbucket-devops-pipelines-yaml--without-unsupported-merge-tag
+    (string error-data)
+  "Remove a merge tag from STRING at the reader failure in ERROR-DATA.
+Return nil unless the reader stopped immediately before a block mapping key
+tagged with `!!merge'.  Using the failure position avoids changing matching
+text inside quoted strings, comments, or script blocks."
+  (let ((case-fold-search nil)
+        (message (error-message-string error-data)))
+    (when (string-match
+           (concat "\\`Unable to parse YAML\\.  "
+                   "Parser finished before end of input \\([0-9]+\\)/[0-9]+\\'")
+           message)
+      (let ((position (string-to-number (match-string 1 message))))
+        (when (and (< position (length string))
+                   (string-match
+                    (concat "\\`[ \t]*\\(!!merge[ \t]+\\)"
+                            "\\(?:<<\\|\"<<\"\\|'<<'\\)[ \t]*:"
+                            "\\(?:[ \t\r\n]\\|\\'\\)")
+                    (substring string position)))
+          (concat (substring string 0 (+ position (match-beginning 1)))
+                  (substring string (+ position (match-end 1)))))))))
+
+(defun bitbucket-devops-pipelines-yaml--parse-document (string)
+  "Parse YAML STRING, accepting explicit merge tags on block mapping keys.
+Retry only the unsupported `!!merge' syntax reported by `yaml.el'; propagate
+other reader errors unchanged.  STRING itself is never modified."
+  (let (document parsed)
+    (while (not parsed)
+      (condition-case err
+          (setq document (yaml-parse-string
+                          string
+                          :object-type 'alist
+                          :object-key-type 'string
+                          :sequence-type 'list)
+                parsed t)
+        (error
+         (let ((normalized
+                (bitbucket-devops-pipelines-yaml--without-unsupported-merge-tag
+                 string err)))
+           (if normalized
+               (setq string normalized)
+             (signal (car err) (cdr err)))))))
+    document))
+
 (defun bitbucket-devops-pipelines-yaml-parse-string (string)
   "Parse Bitbucket Pipelines YAML from STRING."
-  (let* ((document
-          (yaml-parse-string
-           string
-           :object-type 'alist
-           :object-key-type 'string
-           :sequence-type 'list))
+  (let* ((document (bitbucket-devops-pipelines-yaml--parse-document string))
          (pipelines
           (bitbucket-devops-pipelines-yaml--mapping-value document "pipelines"))
          (default (assoc "default" pipelines))

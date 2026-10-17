@@ -106,6 +106,9 @@ repository for the unified Pipelines and pull request menu.
 Press `?` in any package buffer to toggle a panel listing the keys available on
 that screen.
 
+Configured pipeline commands accept explicit YAML merge keys such as
+`!!merge <<: *runner` without requiring changes to `bitbucket-pipelines.yml`.
+
 ## Documentation
 
 [DOCUMENTATION.md](DOCUMENTATION.md) covers everything else:
