@@ -194,5 +194,122 @@
       (bitbucket-devops-pipelines-yaml-option-deployments (car options))
       '("dev")))))
 
+(ert-deftest bitbucket-devops-pipelines-yaml-accepts-explicit-merge-tags ()
+  (let* ((config
+          (bitbucket-devops-pipelines-yaml-parse-string
+           (concat
+            "definitions:
+  step-config:
+    runner: &runner
+      runs-on: [self.hosted, linux]
+      oidc: true
+    scan:
+      !!merge <<: *runner
+      image: scan-image
+"
+            bitbucket-devops-pipelines-yaml-test--config)))
+         (option
+          (bitbucket-devops-pipelines-yaml-custom-option config "deploy prod/v1.0"))
+         (variable (car (bitbucket-devops-pipelines-yaml-option-variables option))))
+    (should
+     (equal
+      (mapcar #'bitbucket-devops-pipelines-yaml-option-label
+              (bitbucket-devops-pipelines-yaml-manual-options config))
+      '("default" "branches: main" "branches: release/*" "pull-requests: **"
+        "custom: deploy prod/v1.0" "custom: no-vars")))
+    (should
+     (equal (bitbucket-devops-pipelines-yaml-variable-default variable) "us-east-1"))
+    (should
+     (equal (bitbucket-devops-pipelines-yaml-option-deployments option)
+            '("production")))))
+
+(ert-deftest bitbucket-devops-pipelines-yaml-preserves-tagged-merge-deployments ()
+  (let ((config
+         (bitbucket-devops-pipelines-yaml-parse-string
+          "definitions:
+  steps:
+    - step: &deploy
+        deployment: production
+        script: [echo deploy]
+pipelines:
+  default:
+    - step:
+        !!merge <<: *deploy
+        name: Default deployment
+  custom:
+    manual:
+      - step:
+          # Inherit the deployment from the same anchor.
+          !!merge <<: *deploy
+          name: Manual deployment
+")))
+    (should
+     (equal (bitbucket-devops-pipelines-yaml-config-default-envs config)
+            '("production")))
+    (should
+     (equal
+      (bitbucket-devops-pipelines-yaml-option-deployments
+       (bitbucket-devops-pipelines-yaml-custom-option config "manual"))
+      '("production")))))
+
+(ert-deftest bitbucket-devops-pipelines-yaml-preserves-merge-tags-in-scalar-text ()
+  (let* ((config
+          (bitbucket-devops-pipelines-yaml-parse-string
+           "definitions:
+  text: |
+    !!merge <<: *runner
+  runner: &runner
+    oidc: true
+  scan:
+    !!merge <<: *runner
+pipelines:
+  custom:
+    manual:
+      - variables:
+          - name: QUOTED
+            default: \"!!merge <<: *runner\"
+          - name: SINGLE_QUOTED
+            default: '!!merge <<: *runner'
+          - name: LITERAL
+            default: |
+              !!merge <<: *runner
+          - name: FOLDED
+            default: >-
+              !!merge <<: *runner
+          - name: MULTILINE_QUOTED
+            default: \"first
+              !!merge <<: *runner\"
+      - step:
+          !!merge <<: *runner
+          script:
+            - |
+              !!merge <<: *runner
+"))
+         (variables
+          (bitbucket-devops-pipelines-yaml-option-variables
+           (bitbucket-devops-pipelines-yaml-custom-option config "manual"))))
+    (should
+     (equal (mapcar #'bitbucket-devops-pipelines-yaml-variable-default variables)
+            '("!!merge <<: *runner" "!!merge <<: *runner"
+              "!!merge <<: *runner\n" "!!merge <<: *runner"
+              "first !!merge <<: *runner")))))
+
+(ert-deftest bitbucket-devops-pipelines-yaml-still-rejects-malformed-yaml ()
+  (dolist (string
+           '("definitions:
+  runner: &runner {oidc: true}
+  scan:
+    !!merge <<: *runner
+pipelines:
+  custom: [unterminated
+"
+             "definitions:
+  runner: &runner {oidc: true}
+  scan:
+    !!MERGE <<: *runner
+"))
+    (let ((case-fold-search t))
+      (should-error (bitbucket-devops-pipelines-yaml-parse-string string)))))
+
 (provide 'bitbucket-devops-pipelines-yaml-test)
 ;;; bitbucket-devops-pipelines-yaml-test.el ends here

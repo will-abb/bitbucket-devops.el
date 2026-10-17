@@ -7,6 +7,14 @@ and this project uses semantic versioning.
 
 ## [Unreleased]
 
+## [3.0.4] - 2026-10-17
+
+### Fixed
+
+- Accept explicit `!!merge <<:` keys when parsing configured pipelines with
+  `yaml.el`, preserving inherited deployment metadata and literal tag text
+  without changing the pipeline file.
+
 ## [3.0.3] - 2026-08-29
 
 ### Added

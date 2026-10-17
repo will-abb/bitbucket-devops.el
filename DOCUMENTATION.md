@@ -496,6 +496,12 @@ the current branch. Custom pipeline completion preserves valid YAML names
 containing spaces, dots, slashes, or quoted text. Runtime-variable prompts use
 YAML defaults and allowed values when declared.
 
+Explicit merge keys such as `!!merge <<: *runner` are accepted even when
+`yaml.el` rejects that syntax in a block mapping. The package retries parsing
+after removing the redundant tag at the reader's failure position, preserving
+matching text in quoted values, comments, and script blocks. The pipeline file
+is not changed.
+
 Only declared variables are prompted for. Bitbucket also accepts variables that
 `bitbucket-pipelines.yml` does not declare, so run the command with a prefix
 argument (`C-u`) to add free-form key and value pairs after the declared
