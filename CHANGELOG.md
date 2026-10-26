@@ -16,6 +16,8 @@ and this project uses semantic versioning.
 
 - Report that pipeline history is still loading when requesting more pages
   before the current page and its metadata finish loading.
+- Include the HTTP status in API failures without a readable Bitbucket error
+  message.
 
 ## [3.0.4] - 2026-10-17
 
