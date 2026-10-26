@@ -485,6 +485,87 @@
           (list (car observed) (caddr observed))
           '((:workspace "williseed1" :repo-slug "test") nil)))))))
 
+(ert-deftest bitbucket-devops-ui-history-pagination-waits-for-enrichment ()
+  (let ((page (bitbucket-devops-ui-test-read-json-fixture
+               "pipelines-page-1.json"))
+        (bitbucket-devops-cache-enabled nil)
+        enrich-callback
+        requested-pages)
+    (with-temp-buffer
+      (bitbucket-devops-pipelines-history-mode)
+      (setq-local bitbucket-devops-ui--context
+                  '(:workspace "williseed1" :repo-slug "test"))
+      (cl-letf (((symbol-function 'bitbucket-devops-rest-list-pipelines)
+                 (lambda (_context callback &optional next-url)
+                   (push next-url requested-pages)
+                   (unless next-url
+                     (funcall callback page nil))))
+                ((symbol-function
+                  'bitbucket-devops-ui--list-all-paused-pipelines)
+                 (lambda (_context callback)
+                   (funcall callback nil nil)))
+                ((symbol-function 'bitbucket-devops-ui--history-enrich-page)
+                 (lambda (_context _page callback)
+                   (setq enrich-callback callback)))
+                ((symbol-function
+                  'bitbucket-devops-ui--history-enrich-deployments)
+                 (lambda (_context enriched-page callback)
+                   (funcall callback enriched-page)))
+                ((symbol-function 'bitbucket-devops-ui--refresh-loaded-pipelines)
+                 #'ignore))
+        (bitbucket-devops-pipelines-history-refresh)
+        (should bitbucket-devops-ui--history-loading)
+        (should-not bitbucket-devops-ui--history-next-url)
+        (should
+         (equal
+          (error-message-string
+           (should-error (bitbucket-devops-pipelines-history-load-more)
+                         :type 'user-error))
+          "Bitbucket pipeline history is already loading"))
+        (should (equal requested-pages '(nil)))
+        (funcall enrich-callback page)
+        (should-not bitbucket-devops-ui--history-loading)
+        (should (equal bitbucket-devops-ui--history-next-url
+                       (alist-get 'next page)))
+        (bitbucket-devops-pipelines-history-load-more)
+        (should (equal requested-pages (list (alist-get 'next page) nil)))))))
+
+(ert-deftest bitbucket-devops-ui-history-pagination-reports-final-page ()
+  (let ((bitbucket-devops-cache-enabled nil))
+    (with-temp-buffer
+      (bitbucket-devops-pipelines-history-mode)
+      (bitbucket-devops-ui--history-receive-page
+       (bitbucket-devops-ui-test-read-json-fixture "pipelines-page-2.json")
+       nil nil)
+      (should
+       (equal
+        (error-message-string
+         (should-error (bitbucket-devops-pipelines-history-load-more)
+                       :type 'user-error))
+        "No additional Bitbucket pipeline history pages are available")))))
+
+(ert-deftest bitbucket-devops-ui-history-pagination-retries-failed-page ()
+  (let ((page (bitbucket-devops-ui-test-read-json-fixture
+               "pipelines-page-1.json"))
+        (bitbucket-devops-cache-enabled nil)
+        requested-pages)
+    (with-temp-buffer
+      (bitbucket-devops-pipelines-history-mode)
+      (setq-local bitbucket-devops-ui--context
+                  '(:workspace "williseed1" :repo-slug "test"))
+      (bitbucket-devops-ui--history-receive-page page nil nil)
+      (cl-letf (((symbol-function 'bitbucket-devops-rest-list-pipelines)
+                 (lambda (_context callback &optional next-url)
+                   (push next-url requested-pages)
+                   (funcall callback nil '(:message "Network error")))))
+        (dotimes (_attempt 2)
+          (bitbucket-devops-pipelines-history-load-more)
+          (should-not bitbucket-devops-ui--history-loading)
+          (should (equal bitbucket-devops-ui--history-next-url
+                         (alist-get 'next page))))
+        (should (equal requested-pages
+                       (make-list 2 (alist-get 'next page))))))))
+
 (ert-deftest bitbucket-devops-pipelines-history-load-more-requests-next-page ()
   (let ((next
          "https://api.bitbucket.org/2.0/repositories/williseed1/test/pipelines?page=2")

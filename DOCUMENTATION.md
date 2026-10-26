@@ -450,6 +450,10 @@ Paused pipelines are included explicitly, even when they are older than the
 first general history page. Open them with `RET`; logs from steps that already
 completed remain available while a later manual or deployment step is paused.
 
+Press `n` to load the next history page. While a page and its commit and
+deployment metadata are loading, this command reports that history is already
+loading; retry once loading finishes.
+
 History includes a `Deployments` column. Pipelines with multiple deployment
 steps display a comma-separated summary such as `development,uat,production`.
 Pipeline details include a `Deployment` column so each step shows its own

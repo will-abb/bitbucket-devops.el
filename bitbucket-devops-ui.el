@@ -2162,6 +2162,8 @@ non-nil."
 (defun bitbucket-devops-pipelines-history-load-more ()
   "Asynchronously append the next page to the current history buffer."
   (interactive)
+  (when bitbucket-devops-ui--history-loading
+    (user-error "Bitbucket pipeline history is already loading"))
   (unless bitbucket-devops-ui--history-next-url
     (user-error "No additional Bitbucket pipeline history pages are available"))
   (bitbucket-devops-ui--history-request
