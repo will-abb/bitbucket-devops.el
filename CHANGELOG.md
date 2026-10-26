@@ -7,6 +7,11 @@ and this project uses semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Use `ssh.bitbucket.org` for Bitbucket Cloud Git-over-SSH remotes and generated
+  pull request fork fetch URLs.
+
 ## [3.0.4] - 2026-10-17
 
 ### Fixed

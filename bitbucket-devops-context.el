@@ -75,15 +75,20 @@ supported Bitbucket Cloud SSH URL."
   (let ((path
          (cond
           ((and (stringp remote)
-                (string-match "\\`git@bitbucket\\.org:\\(.+\\)\\'" remote))
+                (string-match
+                 "\\`git@ssh\\.bitbucket\\.org:\\(.+\\)\\'"
+                 remote))
            (match-string 1 remote))
           ((and (stringp remote)
                 (string-match
-                 "\\`ssh://git@bitbucket\\.org/\\(.+\\)\\'" remote))
+                 "\\`ssh://git@ssh\\.bitbucket\\.org/\\(.+\\)\\'"
+                 remote))
            (match-string 1 remote))
           (t
            (user-error
-            "Remote must be an SSH Bitbucket Cloud URL: git@bitbucket.org:workspace/repository.git")))))
+            (concat
+             "Remote must be an SSH Bitbucket Cloud URL: "
+             "git@ssh.bitbucket.org:workspace/repository.git"))))))
     (unless (string-match "\\`\\([^/]+\\)/\\([^/]+\\)\\'" path)
       (user-error "Remote must contain exactly one workspace and repository slug"))
     (let ((workspace (match-string 1 path))

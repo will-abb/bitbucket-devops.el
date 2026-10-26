@@ -113,8 +113,8 @@ package derives them before making a request.
 3. Parse one of these Bitbucket Cloud SSH forms:
 
    ```text
-   git@bitbucket.org:{workspace}/{repo_slug}.git
-   ssh://git@bitbucket.org/{workspace}/{repo_slug}.git
+   git@ssh.bitbucket.org:{workspace}/{repo_slug}.git
+   ssh://git@ssh.bitbucket.org/{workspace}/{repo_slug}.git
    ```
 
    The trailing `.git` is optional.
@@ -1018,7 +1018,7 @@ Development follows test-driven development.
 The package contract is satisfied when all of the following are true:
 
 1. From a repository with an `origin` SSH remote such as
-   `git@bitbucket.org:workspace/repository.git`, the package resolves the
+   `git@ssh.bitbucket.org:workspace/repository.git`, the package resolves the
    workspace and repository slug.
 2. Repository overrides work when the selected remote is missing or unsuitable.
 3. A user with a configured Bitbucket Cloud token in `.authinfo.gpg` can list

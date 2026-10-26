@@ -21,8 +21,8 @@ The package identifies the current Bitbucket repository from an SSH Git remote
 in one of these forms:
 
 ```text
-git@bitbucket.org:workspace/repository.git
-ssh://git@bitbucket.org/workspace/repository.git
+git@ssh.bitbucket.org:workspace/repository.git
+ssh://git@ssh.bitbucket.org/workspace/repository.git
 ```
 
 The default remote is `origin`. Set `bitbucket-devops-remote` to use another

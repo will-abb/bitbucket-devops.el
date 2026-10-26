@@ -1441,7 +1441,7 @@
       (nreverse calls)
       '(("check-ref-format" "--branch" "feature/example")
         ("check-ref-format" "refs/bitbucket-devops-pull-requests/11/source")
-        ("fetch" "--no-tags" "git@bitbucket.org:contributor/fork.git"
+        ("fetch" "--no-tags" "git@ssh.bitbucket.org:contributor/fork.git"
          "+refs/heads/feature/example:refs/bitbucket-devops-pull-requests/11/source"))))))
 
 (ert-deftest bitbucket-devops-pull-requests-ui-opens-pr-range-in-magit ()

@@ -24,7 +24,8 @@ Bitbucket Cloud only. Bitbucket Data Center is not supported.
 - `transient` 0.3.0 or newer
 - `yaml` 1.2.3 or newer from GNU ELPA
 - A Bitbucket Cloud repository with Pipelines enabled
-- An SSH Git remote, such as `git@bitbucket.org:workspace/repository.git`
+- An SSH Git remote, such as
+  `git@ssh.bitbucket.org:workspace/repository.git`
 
 ## Installation
 
