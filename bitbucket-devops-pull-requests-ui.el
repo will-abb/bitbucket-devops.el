@@ -3507,7 +3507,7 @@ Signal a `user-error' containing Git's output when the command fails."
                 (bitbucket-devops-pull-requests-ui--context-repository-name context)))
               (plist-get context :remote)
             (format
-             "git@bitbucket.org:%s.git"
+             "git@ssh.bitbucket.org:%s.git"
              (bitbucket-devops-pull-requests-ui--validate-repository-name
               repository))))
          (pull-request-id (alist-get 'id pull-request))

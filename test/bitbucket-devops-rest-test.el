@@ -453,7 +453,30 @@
     (should-not (car callback-args))
     (should (eq (plist-get (cadr callback-args) :type) 'http))
     (should (= (plist-get (cadr callback-args) :status) 404))
+    (should (equal (plist-get (cadr callback-args) :message)
+                   "Bitbucket API request failed (HTTP 404)"))
     (should-not (buffer-live-p buffer))))
+
+(ert-deftest bitbucket-devops-rest-handle-response-reports-non-json-http-status ()
+  (dolist (status '(429 502))
+    (let ((buffer (generate-new-buffer " *bitbucket-rest-http-html*"))
+          callback-args)
+      (with-current-buffer buffer
+        (insert (format "HTTP/1.1 %d Error\r\n\r\n" status))
+        (setq-local url-http-end-of-headers (point))
+        (insert "<html>Upstream error</html>")
+        (setq-local url-http-response-status status)
+        (bitbucket-devops-rest--handle-response
+         nil
+         (lambda (&rest args) (setq callback-args args))
+         nil))
+      (should
+       (equal callback-args
+              (list nil (list :type 'http :status status
+                              :message
+                              (format "Bitbucket API request failed (HTTP %d)"
+                                      status)))))
+      (should-not (buffer-live-p buffer)))))
 
 (ert-deftest bitbucket-devops-rest-handle-response-normalizes-http-error ()
   (let ((buffer (generate-new-buffer " *bitbucket-rest-http*"))

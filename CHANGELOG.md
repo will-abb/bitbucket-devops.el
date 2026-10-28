@@ -7,6 +7,20 @@ and this project uses semantic versioning.
 
 ## [Unreleased]
 
+## [3.0.5] - 2026-10-28
+
+### Changed
+
+- Use `ssh.bitbucket.org` for Bitbucket Cloud Git-over-SSH remotes and generated
+  pull request fork fetch URLs.
+
+### Fixed
+
+- Report that pipeline history is still loading when requesting more pages
+  before the current page and its metadata finish loading.
+- Include the HTTP status in API failures without a readable Bitbucket error
+  message.
+
 ## [3.0.4] - 2026-10-17
 
 ### Fixed

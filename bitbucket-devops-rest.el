@@ -289,7 +289,7 @@ CONTEXT identifies the Bitbucket repository."
         :status status
         :message
         (or (bitbucket-devops-rest--http-error-message)
-            "Bitbucket API request failed")))
+            (format "Bitbucket API request failed (HTTP %d)" status))))
 
 (defun bitbucket-devops-rest--status-http-error-code (status)
   "Return the HTTP error code represented by callback STATUS, or nil."

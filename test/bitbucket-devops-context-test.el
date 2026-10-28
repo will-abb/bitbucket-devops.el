@@ -12,46 +12,48 @@
   (should
    (equal
     (bitbucket-devops-context-parse-ssh-remote
-     "git@bitbucket.org:workspace/repository.git")
+     "git@ssh.bitbucket.org:workspace/repository.git")
     '(:workspace "workspace" :repo-slug "repository"))))
 
 (ert-deftest bitbucket-devops-context-parse-ssh-remote-scp-form-without-suffix ()
   (should
    (equal
     (bitbucket-devops-context-parse-ssh-remote
-     "git@bitbucket.org:workspace/repository")
+     "git@ssh.bitbucket.org:workspace/repository")
     '(:workspace "workspace" :repo-slug "repository"))))
 
 (ert-deftest bitbucket-devops-context-parse-ssh-remote-url-form ()
   (should
    (equal
     (bitbucket-devops-context-parse-ssh-remote
-     "ssh://git@bitbucket.org/workspace/repository.git")
+     "ssh://git@ssh.bitbucket.org/workspace/repository.git")
     '(:workspace "workspace" :repo-slug "repository"))))
 
 (ert-deftest bitbucket-devops-context-parse-ssh-remote-url-form-without-suffix ()
   (should
    (equal
     (bitbucket-devops-context-parse-ssh-remote
-     "ssh://git@bitbucket.org/workspace/repository")
+     "ssh://git@ssh.bitbucket.org/workspace/repository")
     '(:workspace "workspace" :repo-slug "repository"))))
 
 (ert-deftest bitbucket-devops-context-parse-ssh-remote-preserves-slug-characters ()
   (should
    (equal
     (bitbucket-devops-context-parse-ssh-remote
-     "git@bitbucket.org:team-name/repository_name.with-punctuation.git")
+     "git@ssh.bitbucket.org:team-name/repository_name.with-punctuation.git")
     '(:workspace "team-name"
       :repo-slug "repository_name.with-punctuation"))))
 
 (ert-deftest bitbucket-devops-context-parse-ssh-remote-rejects-unsupported-remotes ()
   (dolist (remote '("https://bitbucket.org/workspace/repository.git"
                     "git@github.com:workspace/repository.git"
-                    "git@bitbucket.org:repository.git"
-                    "git@bitbucket.org:workspace/"
-                    "git@bitbucket.org:workspace/repository/extra"
-                    "ssh://user@bitbucket.org/workspace/repository.git"
-                    "ssh://git@bitbucket.org/workspace/repository with spaces.git"))
+                    "git@bitbucket.org:workspace/repository.git"
+                    "ssh://git@bitbucket.org/workspace/repository.git"
+                    "git@ssh.bitbucket.org:repository.git"
+                    "git@ssh.bitbucket.org:workspace/"
+                    "git@ssh.bitbucket.org:workspace/repository/extra"
+                    "ssh://user@ssh.bitbucket.org/workspace/repository.git"
+                    "ssh://git@ssh.bitbucket.org/workspace/repository with spaces.git"))
     (should-error
      (bitbucket-devops-context-parse-ssh-remote remote)
      :type 'user-error)))
@@ -63,7 +65,7 @@
               ((symbol-function 'magit-git-string)
                (lambda (&rest args)
                  (should (equal args '("remote" "get-url" "upstream")))
-                 "git@bitbucket.org:workspace/repository.git"))
+                 "git@ssh.bitbucket.org:workspace/repository.git"))
               ((symbol-function 'magit-get-current-branch)
                (lambda () "development"))
               ((symbol-function 'magit-rev-parse)
@@ -108,7 +110,7 @@
              (lambda () "/tmp/project/"))
             ((symbol-function 'magit-git-string)
              (lambda (&rest _args)
-               "git@bitbucket.org:workspace/repository.git"))
+               "git@ssh.bitbucket.org:workspace/repository.git"))
             ((symbol-function 'magit-get-current-branch)
              (lambda () nil))
             ((symbol-function 'magit-rev-parse)
@@ -125,7 +127,7 @@
                  "/tmp/project/"))
               ((symbol-function 'magit-git-string)
                (lambda (&rest _args)
-                 "git@bitbucket.org:workspace/repository.git"))
+                 "git@ssh.bitbucket.org:workspace/repository.git"))
               ((symbol-function 'magit-get-current-branch)
                (lambda () "development"))
               ((symbol-function 'magit-rev-parse)
@@ -147,7 +149,7 @@
              (lambda () "/tmp/project/"))
             ((symbol-function 'magit-git-string)
              (lambda (&rest _args)
-               "git@bitbucket.org:workspace/repository.git"))
+               "git@ssh.bitbucket.org:workspace/repository.git"))
             ((symbol-function 'magit-get-current-branch)
              (lambda () "development"))
             ((symbol-function 'magit-rev-parse)
