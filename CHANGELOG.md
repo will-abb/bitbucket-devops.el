@@ -7,6 +7,8 @@ and this project uses semantic versioning.
 
 ## [Unreleased]
 
+## [3.0.5] - 2026-10-28
+
 ### Changed
 
 - Use `ssh.bitbucket.org` for Bitbucket Cloud Git-over-SSH remotes and generated
